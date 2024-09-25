@@ -26,7 +26,7 @@ Here are some of the ways you can find an issue in Ladybird:
 * Manually, by using the browser as you normally would.
 * By finding failing WPT tests on [WPT.fyi](https://wpt.fyi/results/?label=master&product=ladybird). Note that while fixes are welcome, you don't need to submit issue reports for individual tests.
 
-There currently isn't a list of beginner-friendly issues, nor a strict roadmap of ones to address first. It is ultimately up to you to choose a task that you feel comfortable working on.
+The list of [beginner-friendly issues](https://github.com/LadybirdBrowser/ladybird/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22) is usually very short, and there currently isn't a strict roadmap of issues to address first. It is ultimately up to you to choose a task that you feel comfortable working on.
 
 ## Submitting an issue
 If you have found an issue that is not already in the [issue tracker](https://github.com/LadybirdBrowser/ladybird/issues), you may submit it. Do not submit general questions about the project, please use the Discord server instead.
@@ -42,6 +42,7 @@ Ladybird makes use of the included AK library instead of the C++ STL, and employ
 
 Developer documentation:
 
+* [Coding style](CodingStyle.md)
 * [Coding patterns](Patterns.md)
 * [Smart pointers](SmartPointers.md)
 * [String formatting](StringFormatting.md)
@@ -65,7 +66,7 @@ git push --set-upstream myfork mybranch
 git push
 ```
 
-If your pull request is showing conflicts with the master branch, resolve them locally with:
+If you wish to sync your branch with master, or locally resolve merge conflicts, use:
 ```sh
 # On mybranch
 git fetch origin

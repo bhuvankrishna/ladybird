@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <LibUnicode/CharacterTypes.h>
 #include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/Bindings/TextPrototype.h>
 #include <LibWeb/DOM/Range.h>
@@ -98,7 +99,7 @@ WebIDL::ExceptionOr<JS::NonnullGCPtr<Text>> Text::split_text(size_t offset)
 
         // 4. For each live range whose start node is parent and start offset is equal to the index of node plus 1, increase its start offset by 1.
         for (auto& range : Range::live_ranges()) {
-            if (range->start_container() == this && range->start_offset() == index() + 1)
+            if (range->start_container() == parent.ptr() && range->start_offset() == index() + 1)
                 TRY(range->set_start(*range->start_container(), range->start_offset() + 1));
         }
 
@@ -147,6 +148,32 @@ String Text::whole_text()
         builder.append(text_node->data());
 
     return MUST(builder.to_string());
+}
+
+// https://html.spec.whatwg.org/multipage/dom.html#text-node-directionality
+Optional<Element::Directionality> Text::directionality() const
+{
+    // 1. If text's data does not contain a code point whose bidirectional character type is L, AL, or R, then return null.
+    // 2. Let codePoint be the first code point in text's data whose bidirectional character type is L, AL, or R.
+    Optional<Unicode::BidiClass> found_character_bidi_class;
+    for (auto code_point : Utf8View(data())) {
+        auto bidi_class = Unicode::bidirectional_class(code_point);
+        if (first_is_one_of(bidi_class, Unicode::BidiClass::LeftToRight, Unicode::BidiClass::RightToLeftArabic, Unicode::BidiClass::RightToLeft)) {
+            found_character_bidi_class = bidi_class;
+            break;
+        }
+    }
+    if (!found_character_bidi_class.has_value())
+        return {};
+
+    // 3. If codePoint is of bidirectional character type AL or R, then return 'rtl'.
+    if (first_is_one_of(*found_character_bidi_class, Unicode::BidiClass::RightToLeftArabic, Unicode::BidiClass::RightToLeft))
+        return Element::Directionality::Rtl;
+
+    // 4. If codePoint is of bidirectional character type L, then return 'ltr'.
+    // NOTE: codePoint should always be of bidirectional character type L by this point, so we can just return 'ltr' here.
+    VERIFY(*found_character_bidi_class == Unicode::BidiClass::LeftToRight);
+    return Element::Directionality::Ltr;
 }
 
 }

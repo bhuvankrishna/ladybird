@@ -23,7 +23,7 @@ HashMap<unsigned, NonnullRefPtr<Session>> Client::s_sessions;
 ErrorOr<NonnullRefPtr<Client>> Client::try_create(NonnullOwnPtr<Core::BufferedTCPSocket> socket, LaunchBrowserCallbacks callbacks, Core::EventReceiver* parent)
 {
     if (!callbacks.launch_browser || !callbacks.launch_headless_browser)
-        return Error::from_string_view("All callbacks to launch a browser must be provided"sv);
+        return Error::from_string_literal("All callbacks to launch a browser must be provided");
 
     TRY(socket->set_blocking(true));
     return adopt_nonnull_ref_or_enomem(new (nothrow) Client(move(socket), move(callbacks), parent));
@@ -344,6 +344,24 @@ Web::WebDriver::Response Client::new_window(Web::WebDriver::Parameters parameter
     return session->web_content_connection().new_window(payload);
 }
 
+// 11.6 Switch To Frame, https://w3c.github.io/webdriver/#dfn-switch-to-frame
+// POST /session/{session id}/frame
+Web::WebDriver::Response Client::switch_to_frame(Web::WebDriver::Parameters parameters, JsonValue payload)
+{
+    dbgln_if(WEBDRIVER_DEBUG, "Handling POST /session/<session_id>/frame");
+    auto session = TRY(find_session_with_id(parameters[0]));
+    return session->web_content_connection().switch_to_frame(move(payload));
+}
+
+// 11.7 Switch To Parent Frame, https://w3c.github.io/webdriver/#dfn-switch-to-parent-frame
+// POST /session/{session id}/frame/parent
+Web::WebDriver::Response Client::switch_to_parent_frame(Web::WebDriver::Parameters parameters, JsonValue payload)
+{
+    dbgln_if(WEBDRIVER_DEBUG, "Handling POST /session/<session_id>/frame/parent");
+    auto session = TRY(find_session_with_id(parameters[0]));
+    return session->web_content_connection().switch_to_parent_frame(move(payload));
+}
+
 // 11.8.1 Get Window Rect, https://w3c.github.io/webdriver/#dfn-get-window-rect
 // GET /session/{session id}/window/rect
 Web::WebDriver::Response Client::get_window_rect(Web::WebDriver::Parameters parameters, JsonValue)
@@ -569,6 +587,24 @@ Web::WebDriver::Response Client::element_click(Web::WebDriver::Parameters parame
     return session->web_content_connection().element_click(move(parameters[1]));
 }
 
+// 12.5.2 Element Clear, https://w3c.github.io/webdriver/#dfn-element-clear
+// POST /session/{session id}/element/{element id}/clear
+Web::WebDriver::Response Client::element_clear(Web::WebDriver::Parameters parameters, JsonValue)
+{
+    dbgln_if(WEBDRIVER_DEBUG, "Handling POST /session/<session_id>/element/<element_id>/clear");
+    auto session = TRY(find_session_with_id(parameters[0]));
+    return session->web_content_connection().element_clear(move(parameters[1]));
+}
+
+// 12.5.3 Element Send Keys, https://w3c.github.io/webdriver/#dfn-element-send-keys
+// POST /session/{session id}/element/{element id}/value
+Web::WebDriver::Response Client::element_send_keys(Web::WebDriver::Parameters parameters, JsonValue)
+{
+    dbgln_if(WEBDRIVER_DEBUG, "Handling POST /session/<session_id>/element/<element_id>/value");
+    auto session = TRY(find_session_with_id(parameters[0]));
+    return session->web_content_connection().element_send_keys(move(parameters[1]));
+}
+
 // 13.1 Get Page Source, https://w3c.github.io/webdriver/#dfn-get-page-source
 // GET /session/{session id}/source
 Web::WebDriver::Response Client::get_source(Web::WebDriver::Parameters parameters, JsonValue)
@@ -584,7 +620,7 @@ Web::WebDriver::Response Client::execute_script(Web::WebDriver::Parameters param
 {
     dbgln_if(WEBDRIVER_DEBUG, "Handling POST /session/<session_id>/execute/sync");
     auto session = TRY(find_session_with_id(parameters[0]));
-    return session->web_content_connection().execute_script(payload);
+    return session->execute_script(move(payload), Session::ScriptMode::Sync);
 }
 
 // 13.2.2 Execute Async Script, https://w3c.github.io/webdriver/#dfn-execute-async-script
@@ -593,7 +629,7 @@ Web::WebDriver::Response Client::execute_async_script(Web::WebDriver::Parameters
 {
     dbgln_if(WEBDRIVER_DEBUG, "Handling POST /session/<session_id>/execute/async");
     auto session = TRY(find_session_with_id(parameters[0]));
-    return session->web_content_connection().execute_async_script(payload);
+    return session->execute_script(move(payload), Session::ScriptMode::Async);
 }
 
 // 14.1 Get All Cookies, https://w3c.github.io/webdriver/#dfn-get-all-cookies
@@ -639,6 +675,15 @@ Web::WebDriver::Response Client::delete_all_cookies(Web::WebDriver::Parameters p
     dbgln_if(WEBDRIVER_DEBUG, "Handling DELETE /session/<session_id>/cookie");
     auto session = TRY(find_session_with_id(parameters[0]));
     return session->web_content_connection().delete_all_cookies();
+}
+
+// 15.7 Perform Actions, https://w3c.github.io/webdriver/#perform-actions
+// POST /session/{session id}/actions
+Web::WebDriver::Response Client::perform_actions(Web::WebDriver::Parameters parameters, JsonValue)
+{
+    dbgln_if(WEBDRIVER_DEBUG, "Handling POST /session/<session_id>/actions");
+    auto session = TRY(find_session_with_id(parameters[0]));
+    return session->web_content_connection().perform_actions();
 }
 
 // 15.8 Release Actions, https://w3c.github.io/webdriver/#release-actions

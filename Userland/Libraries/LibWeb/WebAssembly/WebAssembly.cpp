@@ -165,9 +165,9 @@ JS::ThrowCompletionOr<NonnullOwnPtr<Wasm::ModuleInstance>> instantiate_module(JS
     auto& cache = get_cache(*vm.current_realm());
     if (!import_argument.is_undefined()) {
         auto import_object = TRY(import_argument.to_object(vm));
-        dbgln("Trying to resolve stuff because import object was specified");
+        dbgln_if(LIBWEB_WASM_DEBUG, "Trying to resolve stuff because import object was specified");
         for (Wasm::Linker::Name const& import_name : linker.unresolved_imports()) {
-            dbgln("Trying to resolve {}::{}", import_name.module, import_name.name);
+            dbgln_if(LIBWEB_WASM_DEBUG, "Trying to resolve {}::{}", import_name.module, import_name.name);
             auto value_or_error = import_object->get(import_name.module);
             if (value_or_error.is_error())
                 break;
@@ -182,7 +182,7 @@ JS::ThrowCompletionOr<NonnullOwnPtr<Wasm::ModuleInstance>> instantiate_module(JS
             auto import_ = import_or_error.release_value();
             TRY(import_name.type.visit(
                 [&](Wasm::TypeIndex index) -> JS::ThrowCompletionOr<void> {
-                    dbgln("Trying to resolve a function {}::{}, type index {}", import_name.module, import_name.name, index.value());
+                    dbgln_if(LIBWEB_WASM_DEBUG, "Trying to resolve a function {}::{}, type index {}", import_name.module, import_name.name, index.value());
                     auto& type = module.type_section().types()[index.value()];
                     // FIXME: IsCallable()
                     if (!import_.is_function())
@@ -229,7 +229,7 @@ JS::ThrowCompletionOr<NonnullOwnPtr<Wasm::ModuleInstance>> instantiate_module(JS
                         ByteString::formatted("func{}", resolved_imports.size()),
                     };
                     auto address = cache.abstract_machine().store().allocate(move(host_function));
-                    dbgln("Resolved to {}", address->value());
+                    dbgln_if(LIBWEB_WASM_DEBUG, "Resolved to {}", address->value());
                     // FIXME: LinkError instead.
                     VERIFY(address.has_value());
 
@@ -384,11 +384,16 @@ JS::NativeFunction* create_native_function(JS::VM& vm, Wasm::FunctionAddress add
             if (result.values().size() == 1)
                 return to_js_value(vm, result.values().first(), type.results().first());
 
-            VERIFY_NOT_REACHED();
-            // TODO
-            /*return JS::Value(JS::Array::create_from<Wasm::Value>(realm, result.values(), [&](Wasm::Value value) {*/
-            /*    return to_js_value(vm, value);*/
-            /*}));*/
+            // Put result values into a JS::Array in reverse order.
+            auto js_result_values = JS::MarkedVector<JS::Value> { realm.heap() };
+            js_result_values.ensure_capacity(result.values().size());
+
+            for (size_t i = result.values().size(); i > 0; i--) {
+                // Safety: ensure_capacity is called just before this.
+                js_result_values.unchecked_append(to_js_value(vm, result.values().at(i - 1), type.results().at(i - 1)));
+            }
+
+            return JS::Value(JS::Array::create_from(realm, js_result_values));
         });
 
     cache.add_function_instance(address, function);
@@ -430,7 +435,7 @@ JS::ThrowCompletionOr<Wasm::Value> to_webassembly_value(JS::VM& vm, JS::Value va
             auto& cache = get_cache(*vm.current_realm());
             for (auto& entry : cache.function_instances()) {
                 if (entry.value == &function)
-                    return Wasm::Value { Wasm::Reference { Wasm::Reference::Func { entry.key } } };
+                    return Wasm::Value { Wasm::Reference { Wasm::Reference::Func { entry.key, cache.abstract_machine().store().get_module_for(entry.key) } } };
             }
         }
 

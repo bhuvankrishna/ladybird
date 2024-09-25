@@ -1,3 +1,7 @@
+:root {
+    --code-font-family: Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
 @media (prefers-color-scheme: dark) {
     :root {
         --background: rgb(23, 23, 23);
@@ -16,7 +20,11 @@
         --console-warning-color: orange;
         --console-input-color: rgb(57, 57, 57);
         --console-input-focus-color: cyan;
+        --console-table-row-odd: rgb(57, 57, 57);
+        --console-table-row-hover: rgb(80, 79, 79);
+        --console-table-border: gray;
         --property-table-head: rgb(57, 57, 57);
+        --property-table-row: rgb(45, 45, 45);
     }
 }
 
@@ -37,7 +45,11 @@
         --console-warning-color: darkorange;
         --console-input-color: rgb(229, 229, 229);
         --console-input-focus-color: blue;
+        --console-table-row-odd: rgb(229, 229, 229);
+        --console-table-row-hover: rgb(199, 198, 198);
+        --console-table-border: gray;
         --property-table-head: rgb(229, 229, 229);
+        --property-table-row: rgb(240, 240, 240);
     }
 }
 
@@ -162,11 +174,21 @@ body {
     height: calc(100% - 40px);
 
     display: none;
-    border-radius: 0.5rem;
 
     padding: 8px 0px 0px 4px;
 
     overflow: auto scroll;
+}
+
+.tab-header {
+    position: sticky;
+    top: 2px; /* FIXME: Remove this when https://github.com/LadybirdBrowser/ladybird/issues/1245 is resolved. */
+    left: 0;
+    right: 0;
+    background-color: var(--tab-controls);
+    border-top: 2px solid var(--background);
+    display: flex;
+    padding: 0.5em;
 }
 
 details > :not(:first-child) {
@@ -199,7 +221,7 @@ details > :not(:first-child) {
 }
 
 .console {
-    font-family: Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-family: var(--code-font-family);
     width: 100%;
     height: 100%;
 }
@@ -256,6 +278,13 @@ details > :not(:first-child) {
 .property-table td {
     padding: 4px;
     text-align: left;
+
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.property-table tr:nth-child(even) {
+    background-color: var(--property-table-row);
 }
 
 #fonts {
@@ -282,4 +311,57 @@ details > :not(:first-child) {
     font-weight: bold;
     padding-left: 10px;
     padding-right: 10px;
+}
+
+.console-log-table {
+    width: 100%;
+    padding: 0 10px;
+    box-sizing: border-box;
+}
+
+.console-log-table table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    border: 1px solid var(--console-table-border);
+}
+
+.console-log-table thead {
+    border-bottom: 1px solid var(--console-table-border);
+}
+
+.console-log-table th {
+    position: sticky;
+    top: 0px;
+    border: 1px solid var(--console-table-border);
+}
+
+.console-log-table td {
+    border-left: 1px solid var(--console-table-border);
+    border-right: 1px solid var(--console-table-border);
+}
+
+.console-log-table tbody tr:nth-of-type(2n + 1) {
+    background-color: var(--console-table-row-odd);
+}
+
+.console-log-table tbody tr:hover {
+    background-color: var(--console-table-row-hover);
+}
+
+.console-log-table th,
+.console-log-table td {
+    padding: 4px;
+    text-align: left;
+}
+
+#style-sheet-picker {
+    flex-grow: 1;
+}
+
+#style-sheet-source {
+    font-size: 10pt;
+    font-family: var(--code-font-family);
+    white-space: pre;
+    padding: 0.5em;
 }

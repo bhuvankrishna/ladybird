@@ -12,6 +12,7 @@
 #include <Ladybird/Utilities.h>
 #include <LibCore/ArgsParser.h>
 #include <LibWebView/URL.h>
+#include <QFileDialog>
 #include <QFileOpenEvent>
 
 namespace Ladybird {
@@ -109,9 +110,9 @@ void Application::close_task_manager_window()
     }
 }
 
-BrowserWindow& Application::new_window(Vector<URL::URL> const& initial_urls, WebView::CookieJar& cookie_jar, BrowserWindow::IsPopupWindow is_popup_window, Tab* parent_tab, Optional<u64> page_index)
+BrowserWindow& Application::new_window(Vector<URL::URL> const& initial_urls, BrowserWindow::IsPopupWindow is_popup_window, Tab* parent_tab, Optional<u64> page_index)
 {
-    auto* window = new BrowserWindow(initial_urls, cookie_jar, is_popup_window, parent_tab, move(page_index));
+    auto* window = new BrowserWindow(initial_urls, is_popup_window, parent_tab, move(page_index));
     set_active_window(*window);
     window->show();
     if (initial_urls.is_empty()) {
@@ -124,6 +125,15 @@ BrowserWindow& Application::new_window(Vector<URL::URL> const& initial_urls, Web
     window->activateWindow();
     window->raise();
     return *window;
+}
+
+Optional<ByteString> Application::ask_user_for_download_folder() const
+{
+    auto path = QFileDialog::getExistingDirectory(nullptr, "Select download directory", QDir::homePath());
+    if (path.isNull())
+        return {};
+
+    return ak_byte_string_from_qstring(path);
 }
 
 }

@@ -23,7 +23,7 @@ void DragAndDropEventHandler::visit_edges(JS::Cell::Visitor& visitor) const
 }
 
 // https://html.spec.whatwg.org/multipage/dnd.html#drag-and-drop-processing-model
-bool DragAndDropEventHandler::handle_drag_start(
+EventResult DragAndDropEventHandler::handle_drag_start(
     JS::Realm& realm,
     CSSPixelPoint screen_position,
     CSSPixelPoint page_offset,
@@ -51,7 +51,7 @@ bool DragAndDropEventHandler::handle_drag_start(
 
     // 2. Create a drag data store. All the DND events fired subsequently by the steps in this section must use this drag
     //    data store.
-    m_drag_data_store.emplace();
+    m_drag_data_store = HTML::DragDataStore::create();
 
     // 3. Establish which DOM node is the source node, as follows:
     //
@@ -154,7 +154,7 @@ bool DragAndDropEventHandler::handle_drag_start(
     // If the event is canceled, then the drag-and-drop operation should not occur; return.
     if (drag_event->cancelled()) {
         reset();
-        return false;
+        return EventResult::Cancelled;
     }
 
     // FIXME: 10. Fire a pointer event at the source node named pointercancel, and fire any other follow-up events as
@@ -169,11 +169,11 @@ bool DragAndDropEventHandler::handle_drag_start(
     //            as distances in CSS pixels from the left side and from the top side of the image respectively.
     //         2. The drag data store default feedback.
 
-    return true;
+    return EventResult::Handled;
 }
 
 // https://html.spec.whatwg.org/multipage/dnd.html#drag-and-drop-processing-model:queue-a-task
-bool DragAndDropEventHandler::handle_drag_move(
+EventResult DragAndDropEventHandler::handle_drag_move(
     JS::Realm& realm,
     JS::NonnullGCPtr<DOM::Document> document,
     JS::NonnullGCPtr<DOM::Node> node,
@@ -185,8 +185,8 @@ bool DragAndDropEventHandler::handle_drag_move(
     unsigned buttons,
     unsigned modifiers)
 {
-    if (!m_drag_data_store.has_value())
-        return false;
+    if (!has_ongoing_drag_and_drop_operation())
+        return EventResult::Cancelled;
 
     auto fire_a_drag_and_drop_event = [&](JS::GCPtr<DOM::EventTarget> target, FlyString const& name, JS::GCPtr<DOM::EventTarget> related_target = nullptr) {
         return this->fire_a_drag_and_drop_event(realm, target, name, screen_position, page_offset, client_offset, offset, button, buttons, modifiers, related_target);
@@ -320,10 +320,10 @@ bool DragAndDropEventHandler::handle_drag_move(
     if (drag_event->cancelled())
         return handle_drag_end(realm, Cancelled::Yes, screen_position, page_offset, client_offset, offset, button, buttons, modifiers);
 
-    return true;
+    return EventResult::Handled;
 }
 
-bool DragAndDropEventHandler::handle_drag_leave(
+EventResult DragAndDropEventHandler::handle_drag_leave(
     JS::Realm& realm,
     CSSPixelPoint screen_position,
     CSSPixelPoint page_offset,
@@ -336,7 +336,7 @@ bool DragAndDropEventHandler::handle_drag_leave(
     return handle_drag_end(realm, Cancelled::Yes, screen_position, page_offset, client_offset, offset, button, buttons, modifiers);
 }
 
-bool DragAndDropEventHandler::handle_drop(
+EventResult DragAndDropEventHandler::handle_drop(
     JS::Realm& realm,
     CSSPixelPoint screen_position,
     CSSPixelPoint page_offset,
@@ -350,7 +350,7 @@ bool DragAndDropEventHandler::handle_drop(
 }
 
 // https://html.spec.whatwg.org/multipage/dnd.html#drag-and-drop-processing-model:event-dnd-drag-3
-bool DragAndDropEventHandler::handle_drag_end(
+EventResult DragAndDropEventHandler::handle_drag_end(
     JS::Realm& realm,
     Cancelled cancelled,
     CSSPixelPoint screen_position,
@@ -361,8 +361,8 @@ bool DragAndDropEventHandler::handle_drag_end(
     unsigned buttons,
     unsigned modifiers)
 {
-    if (!m_drag_data_store.has_value())
-        return false;
+    if (!has_ongoing_drag_and_drop_operation())
+        return EventResult::Cancelled;
 
     auto fire_a_drag_and_drop_event = [&](JS::GCPtr<DOM::EventTarget> target, FlyString const& name, JS::GCPtr<DOM::EventTarget> related_target = nullptr) {
         return this->fire_a_drag_and_drop_event(realm, target, name, screen_position, page_offset, client_offset, offset, button, buttons, modifiers, related_target);
@@ -456,7 +456,7 @@ bool DragAndDropEventHandler::handle_drag_end(
         else if (!dropped || m_current_drag_operation == HTML::DataTransferEffect::none) {
             // The drag was canceled. If the platform conventions dictate that this be represented to the user (e.g. by
             // animating the dragged selection going back to the source of the drag-and-drop operation), then do so.
-            return false;
+            return EventResult::Cancelled;
         }
         // -> Otherwise
         else {
@@ -464,7 +464,7 @@ bool DragAndDropEventHandler::handle_drag_end(
         }
     }
 
-    return true;
+    return EventResult::Handled;
 }
 
 // https://html.spec.whatwg.org/multipage/dnd.html#fire-a-dnd-event
@@ -506,8 +506,7 @@ JS::NonnullGCPtr<HTML::DragEvent> DragAndDropEventHandler::fire_a_drag_and_drop_
     }
 
     // 6. Let dataTransfer be a newly created DataTransfer object associated with the given drag data store.
-    auto data_transfer = HTML::DataTransfer::construct_impl(realm);
-    data_transfer->associate_with_drag_data_store(*m_drag_data_store);
+    auto data_transfer = HTML::DataTransfer::create(realm, *m_drag_data_store);
 
     // 7. Set the effectAllowed attribute to the drag data store's drag data store allowed effects state.
     data_transfer->set_effect_allowed_internal(m_drag_data_store->allowed_effects_state());

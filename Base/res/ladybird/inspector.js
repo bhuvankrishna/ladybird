@@ -103,6 +103,18 @@ inspector.reset = () => {
     let accessibilityTree = document.getElementById("accessibility-tree");
     accessibilityTree.innerHTML = "";
 
+    let cookieTable = document.getElementById("cookie-table");
+    cookieTable.innerHTML = "";
+
+    let styleSheetPicker = document.getElementById("style-sheet-picker");
+    styleSheetPicker.replaceChildren();
+
+    let styleSheetSource = document.getElementById("style-sheet-source");
+    styleSheetSource.innerHTML = "";
+
+    let fontsList = document.getElementById("fonts-list");
+    fontsList.innerHTML = "";
+
     selectedDOMNode = null;
     pendingEditDOMNode = null;
 
@@ -126,7 +138,14 @@ inspector.loadDOMTree = tree => {
 
     for (let domNode of domNodes) {
         domNode.addEventListener("dblclick", event => {
-            editDOMNode(domNode);
+            const type = domNode.dataset.nodeType;
+            const text = event.target.innerText;
+
+            if (type === "attribute" && event.target.classList.contains("attribute-value")) {
+                text = text.substring(1, text.length - 1);
+            }
+
+            editDOMNode(domNode, text);
             event.preventDefault();
         });
     }
@@ -190,6 +209,131 @@ inspector.addAttributeToDOMNodeID = nodeID => {
     addAttributeToDOMNode(pendingEditDOMNode);
 
     pendingEditDOMNode = null;
+};
+
+inspector.setCookies = cookies => {
+    let oldTable = document.getElementById("cookie-table");
+
+    let newTable = document.createElement("tbody");
+    newTable.setAttribute("id", oldTable.id);
+
+    const addColumn = (row, value) => {
+        let column = row.insertCell();
+        column.innerText = value;
+        column.title = value;
+    };
+
+    cookies
+        .sort((lhs, rhs) => lhs.name.localeCompare(rhs.name))
+        .forEach(cookie => {
+            let row = newTable.insertRow();
+
+            addColumn(row, cookie.name);
+            addColumn(row, cookie.value);
+            addColumn(row, cookie.domain);
+            addColumn(row, cookie.path);
+            addColumn(row, new Date(cookie.creationTime).toLocaleString());
+            addColumn(row, new Date(cookie.lastAccessTime).toLocaleString());
+            addColumn(row, new Date(cookie.expiryTime).toLocaleString());
+
+            row.addEventListener("contextmenu", event => {
+                inspector.requestCookieContextMenu(cookie.index, event.clientX, event.clientY);
+                event.preventDefault();
+            });
+        });
+
+    oldTable.parentNode.replaceChild(newTable, oldTable);
+};
+
+inspector.setStyleSheets = styleSheets => {
+    const styleSheetPicker = document.getElementById("style-sheet-picker");
+    const styleSheetSource = document.getElementById("style-sheet-source");
+    styleSheetPicker.replaceChildren();
+    styleSheetSource.innerHTML = "";
+
+    function addOption(styleSheet, text) {
+        const option = document.createElement("option");
+        option.innerText = text;
+        if (styleSheet.type) {
+            option.dataset["type"] = styleSheet.type;
+        }
+        if (styleSheet.domNodeId) {
+            option.dataset["domNodeId"] = styleSheet.domNodeId;
+        }
+        if (styleSheet.url) {
+            option.dataset["url"] = styleSheet.url;
+        }
+        styleSheetPicker.add(option);
+    }
+
+    if (styleSheets.length > 0) {
+        let styleElementIndex = 1;
+        for (const styleSheet of styleSheets) {
+            switch (styleSheet.type) {
+                case "StyleElement":
+                    addOption(styleSheet, `Style element #${styleElementIndex++}`);
+                    break;
+                case "LinkElement":
+                    addOption(styleSheet, styleSheet.url);
+                    break;
+                case "ImportRule":
+                    addOption(styleSheet, styleSheet.url);
+                    break;
+                case "UserAgent":
+                    addOption(styleSheet, `User agent: ${styleSheet.url}`);
+                    break;
+                case "UserStyle":
+                    addOption(styleSheet, "User style");
+                    break;
+            }
+        }
+        styleSheetPicker.disabled = false;
+    } else {
+        addOption({}, "No style sheets found");
+        styleSheetPicker.disabled = true;
+    }
+
+    styleSheetPicker.selectedIndex = 0;
+
+    if (!styleSheetPicker.disabled) {
+        loadStyleSheet();
+    }
+};
+
+const loadStyleSheet = () => {
+    const styleSheetPicker = document.getElementById("style-sheet-picker");
+    const styleSheetSource = document.getElementById("style-sheet-source");
+    const selectedOption = styleSheetPicker.selectedOptions[0];
+
+    styleSheetSource.innerHTML = "Loading...";
+    inspector.requestStyleSheetSource(
+        selectedOption.dataset["type"],
+        selectedOption.dataset["domNodeId"],
+        selectedOption.dataset["url"]
+    );
+};
+
+inspector.setStyleSheetSource = (identifier, sourceBase64) => {
+    const styleSheetPicker = document.getElementById("style-sheet-picker");
+    const styleSheetSource = document.getElementById("style-sheet-source");
+    const selectedOption = styleSheetPicker.selectedOptions[0];
+
+    // Make sure this is the source for the currently-selected style sheet.
+    // NOTE: These are != not !== intentionally.
+    if (
+        identifier.type != selectedOption.dataset["type"] ||
+        identifier.domNodeId != selectedOption.dataset["domNodeId"] ||
+        identifier.url != selectedOption.dataset["url"]
+    ) {
+        console.log(
+            JSON.stringify(identifier),
+            "doesn't match",
+            JSON.stringify(selectedOption.dataset)
+        );
+        return;
+    }
+
+    styleSheetSource.innerHTML = decodeBase64(sourceBase64);
 };
 
 inspector.createPropertyTables = (computedStyle, resolvedStyle, customProperties) => {
@@ -329,9 +473,6 @@ const createDOMEditor = (onHandleChange, onCancelChange) => {
 
     setTimeout(() => {
         input.focus();
-
-        // FIXME: Invoke `select` when it isn't just stubbed out.
-        // input.select();
     });
 
     return input;
@@ -344,7 +485,7 @@ const parseDOMAttributes = value => {
     return element.children[0].attributes;
 };
 
-const editDOMNode = domNode => {
+const editDOMNode = (domNode, textToSelect) => {
     if (selectedDOMNode === null) {
         return;
     }
@@ -381,6 +522,18 @@ const editDOMNode = domNode => {
     } else {
         editor.value = domNode.innerText;
     }
+
+    setTimeout(() => {
+        if (typeof textToSelect !== "undefined") {
+            const index = editor.value.indexOf(textToSelect);
+            if (index !== -1) {
+                editor.setSelectionRange(index, index + textToSelect.length);
+                return;
+            }
+        }
+
+        editor.select();
+    });
 
     domNode.parentNode.replaceChild(editor, domNode);
 };

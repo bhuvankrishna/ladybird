@@ -140,14 +140,14 @@ static inline bool matches_link_pseudo_class(DOM::Element const& element)
     return element.has_attribute(HTML::AttributeNames::href);
 }
 
-static inline bool matches_hover_pseudo_class(DOM::Element const& element)
+bool matches_hover_pseudo_class(DOM::Element const& element)
 {
     auto* hovered_node = element.document().hovered_node();
     if (!hovered_node)
         return false;
     if (&element == hovered_node)
         return true;
-    return element.is_ancestor_of(*hovered_node);
+    return element.is_shadow_including_ancestor_of(*hovered_node);
 }
 
 // https://html.spec.whatwg.org/multipage/semantics-other.html#selector-checked

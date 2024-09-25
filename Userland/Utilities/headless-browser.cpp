@@ -45,14 +45,10 @@
 #include <LibImageDecoderClient/Client.h>
 #include <LibRequests/RequestClient.h>
 #include <LibURL/URL.h>
-#include <LibWeb/Cookie/Cookie.h>
-#include <LibWeb/Cookie/ParsedCookie.h>
 #include <LibWeb/HTML/ActivateTab.h>
 #include <LibWeb/HTML/SelectedFile.h>
 #include <LibWeb/Worker/WebWorkerClient.h>
 #include <LibWebView/Application.h>
-#include <LibWebView/CookieJar.h>
-#include <LibWebView/Database.h>
 #include <LibWebView/URL.h>
 #include <LibWebView/ViewImplementation.h>
 #include <LibWebView/WebContentClient.h>
@@ -74,10 +70,7 @@ public:
         auto image_decoder_paths = TRY(get_paths_for_helper_process("ImageDecoder"sv));
         image_decoder_client = TRY(launch_image_decoder_process(image_decoder_paths));
 
-        auto database = TRY(WebView::Database::create());
-        auto cookie_jar = TRY(WebView::CookieJar::create(*database));
-
-        auto view = TRY(adopt_nonnull_own_or_enomem(new (nothrow) HeadlessWebContentView(move(database), move(cookie_jar), image_decoder_client, request_client)));
+        auto view = TRY(adopt_nonnull_own_or_enomem(new (nothrow) HeadlessWebContentView(image_decoder_client, request_client)));
 
         auto request_server_socket = TRY(connect_new_request_server_client(*request_client));
         auto image_decoder_socket = TRY(connect_new_image_decoder_client(*image_decoder_client));
@@ -124,41 +117,16 @@ public:
         m_pending_screenshot->resolve(screenshot.bitmap());
     }
 
-    ErrorOr<String> dump_layout_tree()
-    {
-        return String::from_byte_string(client().dump_layout_tree(0));
-    }
-
-    ErrorOr<String> dump_paint_tree()
-    {
-        return String::from_byte_string(client().dump_paint_tree(0));
-    }
-
-    ErrorOr<String> dump_text()
-    {
-        return String::from_byte_string(client().dump_text(0));
-    }
-
     void clear_content_filters()
     {
         client().async_set_content_filters(0, {});
     }
 
 private:
-    HeadlessWebContentView(NonnullRefPtr<WebView::Database> database, NonnullOwnPtr<WebView::CookieJar> cookie_jar, RefPtr<ImageDecoderClient::Client> image_decoder_client, RefPtr<Requests::RequestClient> request_client)
-        : m_database(move(database))
-        , m_cookie_jar(move(cookie_jar))
-        , m_request_client(move(request_client))
+    HeadlessWebContentView(RefPtr<ImageDecoderClient::Client> image_decoder_client, RefPtr<Requests::RequestClient> request_client)
+        : m_request_client(move(request_client))
         , m_image_decoder_client(move(image_decoder_client))
     {
-        on_get_cookie = [this](auto const& url, auto source) {
-            return m_cookie_jar->get_cookie(url, source);
-        };
-
-        on_set_cookie = [this](auto const& url, auto const& cookie, auto source) {
-            m_cookie_jar->set_cookie(url, cookie, source);
-        };
-
         on_request_worker_agent = [this]() {
             auto worker_client = MUST(launch_web_worker_process(MUST(get_paths_for_helper_process("WebWorker"sv)), *m_request_client));
             return worker_client->dup_socket();
@@ -172,12 +140,9 @@ private:
     virtual Gfx::IntPoint to_content_position(Gfx::IntPoint widget_position) const override { return widget_position; }
     virtual Gfx::IntPoint to_widget_position(Gfx::IntPoint content_position) const override { return content_position; }
 
-private:
     Gfx::IntSize m_viewport_size;
     RefPtr<Core::Promise<RefPtr<Gfx::Bitmap>>> m_pending_screenshot;
 
-    NonnullRefPtr<WebView::Database> m_database;
-    NonnullOwnPtr<WebView::CookieJar> m_cookie_jar;
     RefPtr<Requests::RequestClient> m_request_client;
     RefPtr<ImageDecoderClient::Client> m_image_decoder_client;
 };
@@ -265,18 +230,15 @@ static ErrorOr<TestResult> run_dump_test(HeadlessWebContentView& view, URL::URL 
                 //       It also causes a lot more code to run, which is good for finding bugs. :^)
                 (void)view.take_screenshot();
 
-                StringBuilder builder;
-                builder.append(view.dump_layout_tree().release_value_but_fixme_should_propagate_errors());
-                builder.append("\n"sv);
-                builder.append(view.dump_paint_tree().release_value_but_fixme_should_propagate_errors());
-                result = builder.to_string().release_value_but_fixme_should_propagate_errors();
+                auto promise = view.request_internal_page_info(WebView::PageInfoType::LayoutTree | WebView::PageInfoType::PaintTree);
+                result = MUST(promise->await());
 
                 loop.quit(0);
             }
         };
+
         view.on_text_test_finish = {};
     } else if (mode == TestMode::Text) {
-
         view.on_load_finish = [&](auto const& loaded_url) {
             // NOTE: We don't want subframe loads to trigger the test finish.
             if (!url.equals(loaded_url, URL::ExcludeFragment::Yes))
@@ -285,8 +247,11 @@ static ErrorOr<TestResult> run_dump_test(HeadlessWebContentView& view, URL::URL 
             if (did_finish_test)
                 loop.quit(0);
         };
+
         view.on_text_test_finish = [&]() {
-            result = view.dump_text().release_value_but_fixme_should_propagate_errors();
+            auto promise = view.request_internal_page_info(WebView::PageInfoType::Text);
+            result = MUST(promise->await());
+
             did_finish_test = true;
             if (did_finish_loading)
                 loop.quit(0);

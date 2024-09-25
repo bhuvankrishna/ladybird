@@ -53,6 +53,7 @@ static bool is_platform_object(Type const& type)
         "DynamicsCompressorNode"sv,
         "ElementInternals"sv,
         "EventTarget"sv,
+        "File"sv,
         "FileList"sv,
         "FontFace"sv,
         "FormData"sv,
@@ -84,6 +85,8 @@ static bool is_platform_object(Type const& type)
         "ReadableStream"sv,
         "Request"sv,
         "Selection"sv,
+        "ServiceWorkerContainer"sv,
+        "ServiceWorkerRegistration"sv,
         "SVGTransform"sv,
         "ShadowRoot"sv,
         "Table"sv,
@@ -91,6 +94,7 @@ static bool is_platform_object(Type const& type)
         "TextMetrics"sv,
         "TextTrack"sv,
         "URLSearchParams"sv,
+        "VTTRegion"sv,
         "VideoTrack"sv,
         "VideoTrackList"sv,
         "WebGLRenderingContext"sv,
@@ -261,7 +265,7 @@ CppType idl_type_name_to_cpp_type(Type const& type, Interface const& interface)
 
 static ByteString make_input_acceptable_cpp(ByteString const& input)
 {
-    if (input.is_one_of("class", "template", "for", "default", "char", "namespace", "delete", "inline")) {
+    if (input.is_one_of("class", "template", "for", "default", "char", "namespace", "delete", "inline", "register")) {
         StringBuilder builder;
         builder.append(input);
         builder.append('_');
@@ -902,16 +906,16 @@ static void generate_to_cpp(SourceGenerator& generator, ParameterType& parameter
 
         // An ECMAScript value V is converted to an IDL callback function type value by running the following algorithm:
         // 1. If the result of calling IsCallable(V) is false and the conversion to an IDL value is not being performed due to V being assigned to an attribute whose type is a nullable callback function that is annotated with [LegacyTreatNonObjectAsNull], then throw a TypeError.
-        if (!callback_function.is_legacy_treat_non_object_as_null) {
+        if (!parameter.type->is_nullable() && !callback_function.is_legacy_treat_non_object_as_null) {
             callback_function_generator.append(R"~~~(
     if (!@js_name@@js_suffix@.is_function())
         return vm.throw_completion<JS::TypeError>(JS::ErrorType::NotAFunction, @js_name@@js_suffix@.to_string_without_side_effects());
 )~~~");
         }
         // 2. Return the IDL callback function type value that represents a reference to the same object that V represents, with the incumbent settings object as the callback context.
-        if (callback_function.is_legacy_treat_non_object_as_null) {
+        if (parameter.type->is_nullable() || callback_function.is_legacy_treat_non_object_as_null) {
             callback_function_generator.append(R"~~~(
-    WebIDL::CallbackType* @cpp_name@ = nullptr;
+    JS::GCPtr<WebIDL::CallbackType> @cpp_name@;
     if (@js_name@@js_suffix@.is_object())
         @cpp_name@ = vm.heap().allocate_without_realm<WebIDL::CallbackType>(@js_name@@js_suffix@.as_object(), HTML::incumbent_settings_object(), @operation_returns_promise@);
 )~~~");
@@ -4178,12 +4182,14 @@ static void generate_using_namespace_definitions(SourceGenerator& generator)
     generator.append(R"~~~(
     // FIXME: This is a total hack until we can figure out the namespace for a given type somehow.
     using namespace Web::Animations;
+    using namespace Web::Clipboard;
+    using namespace Web::Crypto;
     using namespace Web::CSS;
     using namespace Web::DOM;
-    using namespace Web::Crypto;
     using namespace Web::DOMParsing;
     using namespace Web::DOMURL;
     using namespace Web::Encoding;
+    using namespace Web::EntriesAPI;
     using namespace Web::Fetch;
     using namespace Web::FileAPI;
     using namespace Web::Geometry;
@@ -4192,21 +4198,23 @@ static void generate_using_namespace_definitions(SourceGenerator& generator)
     using namespace Web::IndexedDB;
     using namespace Web::Internals;
     using namespace Web::IntersectionObserver;
+    using namespace Web::MediaCapabilitiesAPI;
+    using namespace Web::NavigationTiming;
+    using namespace Web::PerformanceTimeline;
     using namespace Web::RequestIdleCallback;
     using namespace Web::ResizeObserver;
     using namespace Web::Selection;
-    using namespace Web::NavigationTiming;
-    using namespace Web::PerformanceTimeline;
-    using namespace Web::UserTiming;
     using namespace Web::StorageAPI;
     using namespace Web::Streams;
     using namespace Web::SVG;
     using namespace Web::UIEvents;
-    using namespace Web::XHR;
+    using namespace Web::UserTiming;
     using namespace Web::WebAssembly;
     using namespace Web::WebAudio;
     using namespace Web::WebGL;
     using namespace Web::WebIDL;
+    using namespace Web::WebVTT;
+    using namespace Web::XHR;
 )~~~"sv);
 }
 

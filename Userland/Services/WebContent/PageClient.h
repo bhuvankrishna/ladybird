@@ -9,6 +9,7 @@
 #pragma once
 
 #include <LibGfx/Rect.h>
+#include <LibWeb/CSS/StyleSheetIdentifier.h>
 #include <LibWeb/HTML/AudioPlayState.h>
 #include <LibWeb/HTML/FileFilter.h>
 #include <LibWeb/Page/Page.h>
@@ -82,6 +83,8 @@ public:
     void did_output_js_console_message(i32 message_index);
     void console_peer_did_misbehave(char const* reason);
     void did_get_js_console_messages(i32 start_index, Vector<ByteString> message_types, Vector<ByteString> messages);
+
+    Vector<Web::CSS::StyleSheetIdentifier> list_style_sheets() const;
 
     virtual double device_pixels_per_css_pixel() const override { return m_device_pixels_per_css_pixel; }
 
@@ -166,6 +169,8 @@ private:
     virtual void inspector_did_add_dom_node_attributes(i32 node_id, JS::NonnullGCPtr<Web::DOM::NamedNodeMap> attributes) override;
     virtual void inspector_did_replace_dom_node_attribute(i32 node_id, size_t attribute_index, JS::NonnullGCPtr<Web::DOM::NamedNodeMap> replacement_attributes) override;
     virtual void inspector_did_request_dom_tree_context_menu(i32 node_id, Web::CSSPixelPoint position, String const& type, Optional<String> const& tag, Optional<size_t> const& attribute_index) override;
+    virtual void inspector_did_request_cookie_context_menu(size_t cookie_index, Web::CSSPixelPoint position) override;
+    virtual void inspector_did_request_style_sheet_source(Web::CSS::StyleSheetIdentifier const& stylesheet_source) override;
     virtual void inspector_did_execute_console_script(String const& script) override;
     virtual void inspector_did_export_inspector_html(String const& script) override;
 

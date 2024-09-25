@@ -64,6 +64,8 @@ static constexpr auto s_webdriver_endpoints = Array {
     ROUTE(POST, "/session/:session_id/window"sv, switch_to_window),
     ROUTE(GET, "/session/:session_id/window/handles"sv, get_window_handles),
     ROUTE(POST, "/session/:session_id/window/new"sv, new_window),
+    ROUTE(POST, "/session/:session_id/frame"sv, switch_to_frame),
+    ROUTE(POST, "/session/:session_id/frame/parent"sv, switch_to_parent_frame),
     ROUTE(GET, "/session/:session_id/window/rect"sv, get_window_rect),
     ROUTE(POST, "/session/:session_id/window/rect"sv, set_window_rect),
     ROUTE(POST, "/session/:session_id/window/maximize"sv, maximize_window),
@@ -89,6 +91,8 @@ static constexpr auto s_webdriver_endpoints = Array {
     ROUTE(GET, "/session/:session_id/element/:element_id/computedrole"sv, get_computed_role),
     ROUTE(GET, "/session/:session_id/element/:element_id/computedlabel"sv, get_computed_label),
     ROUTE(POST, "/session/:session_id/element/:element_id/click"sv, element_click),
+    ROUTE(POST, "/session/:session_id/element/:element_id/clear"sv, element_clear),
+    ROUTE(POST, "/session/:session_id/element/:element_id/value"sv, element_send_keys),
     ROUTE(GET, "/session/:session_id/source"sv, get_source),
     ROUTE(POST, "/session/:session_id/execute/sync"sv, execute_script),
     ROUTE(POST, "/session/:session_id/execute/async"sv, execute_async_script),
@@ -97,6 +101,7 @@ static constexpr auto s_webdriver_endpoints = Array {
     ROUTE(POST, "/session/:session_id/cookie"sv, add_cookie),
     ROUTE(DELETE, "/session/:session_id/cookie/:name"sv, delete_cookie),
     ROUTE(DELETE, "/session/:session_id/cookie"sv, delete_all_cookies),
+    ROUTE(POST, "/session/:session_id/actions"sv, perform_actions),
     ROUTE(DELETE, "/session/:session_id/actions"sv, release_actions),
     ROUTE(POST, "/session/:session_id/alert/dismiss"sv, dismiss_alert),
     ROUTE(POST, "/session/:session_id/alert/accept"sv, accept_alert),
@@ -298,14 +303,9 @@ ErrorOr<void, Client::WrappedError> Client::send_success_response(JsonValue resu
     builder.append("Content-Type: application/json; charset=utf-8\r\n"sv);
     builder.appendff("Content-Length: {}\r\n", content.length());
     builder.append("\r\n"sv);
+    builder.append(content);
 
-    auto builder_contents = TRY(builder.to_byte_buffer());
-    TRY(m_socket->write_until_depleted(builder_contents));
-
-    while (!content.is_empty()) {
-        auto bytes_sent = TRY(m_socket->write_some(content.bytes()));
-        content = content.substring_view(bytes_sent);
-    }
+    TRY(m_socket->write_until_depleted(builder.string_view()));
 
     if (!keep_alive)
         die();

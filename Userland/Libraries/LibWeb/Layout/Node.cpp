@@ -262,6 +262,14 @@ bool Node::is_fixed_position() const
     return position == CSS::Positioning::Fixed;
 }
 
+bool Node::is_sticky_position() const
+{
+    if (!has_style())
+        return false;
+    auto position = computed_values().position();
+    return position == CSS::Positioning::Sticky;
+}
+
 NodeWithStyle::NodeWithStyle(DOM::Document& document, DOM::Node* node, NonnullRefPtr<CSS::StyleProperties> computed_style)
     : Node(document, node)
     , m_computed_values(make<CSS::ComputedValues>())
@@ -694,8 +702,8 @@ void NodeWithStyle::apply_style(const CSS::StyleProperties& computed_style)
     if (transition_delay_property->is_time()) {
         auto& transition_delay = transition_delay_property->as_time();
         computed_values.set_transition_delay(transition_delay.time());
-    } else if (transition_delay_property->is_calculated()) {
-        auto& transition_delay = transition_delay_property->as_calculated();
+    } else if (transition_delay_property->is_math()) {
+        auto& transition_delay = transition_delay_property->as_math();
         computed_values.set_transition_delay(transition_delay.resolve_time().value());
     }
 
@@ -716,8 +724,8 @@ void NodeWithStyle::apply_style(const CSS::StyleProperties& computed_style)
         } else {
             auto resolve_border_width = [&]() -> CSSPixels {
                 auto value = computed_style.property(width_property);
-                if (value->is_calculated())
-                    return max(CSSPixels { 0 }, value->as_calculated().resolve_length(*this)->to_px(*this));
+                if (value->is_math())
+                    return max(CSSPixels { 0 }, value->as_math().resolve_length(*this)->to_px(*this));
                 if (value->is_length())
                     return value->as_length().length().to_px(*this);
                 if (value->is_keyword()) {
@@ -829,6 +837,11 @@ void NodeWithStyle::apply_style(const CSS::StyleProperties& computed_style)
 
     if (auto column_count = computed_style.property(CSS::PropertyID::ColumnCount); column_count->is_integer())
         computed_values.set_column_count(CSS::ColumnCount::make_integer(column_count->as_integer().integer()));
+
+    if (auto column_span = computed_style.column_span(); column_span.has_value())
+        computed_values.set_column_span(column_span.value());
+
+    computed_values.set_column_width(computed_style.size_value(CSS::PropertyID::ColumnWidth));
 
     computed_values.set_column_gap(computed_style.size_value(CSS::PropertyID::ColumnGap));
     computed_values.set_row_gap(computed_style.size_value(CSS::PropertyID::RowGap));
@@ -962,6 +975,12 @@ JS::NonnullGCPtr<NodeWithStyle> NodeWithStyle::create_anonymous_wrapper() const
 {
     auto wrapper = heap().allocate_without_realm<BlockContainer>(const_cast<DOM::Document&>(document()), nullptr, computed_values().clone_inherited_values());
     wrapper->mutable_computed_values().set_display(CSS::Display(CSS::DisplayOutside::Block, CSS::DisplayInside::Flow));
+
+    // NOTE: These properties are not inherited, but we still have to propagate them to anonymous wrappers.
+    wrapper->mutable_computed_values().set_text_decoration_line(computed_values().text_decoration_line());
+    wrapper->mutable_computed_values().set_text_decoration_thickness(computed_values().text_decoration_thickness());
+    wrapper->mutable_computed_values().set_text_decoration_color(computed_values().text_decoration_color());
+    wrapper->mutable_computed_values().set_text_decoration_style(computed_values().text_decoration_style());
     return *wrapper;
 }
 

@@ -31,19 +31,15 @@
 
 #ifdef USE_VULKAN
 #    include <gpu/ganesh/vk/GrVkDirectContext.h>
-#    include <gpu/vk/GrVkBackendContext.h>
 #    include <gpu/vk/VulkanBackendContext.h>
 #    include <gpu/vk/VulkanExtensions.h>
 #endif
 
 #ifdef AK_OS_MACOS
-#    define FixedPoint FixedPointMacOS
-#    define Duration DurationMacOS
 #    include <gpu/GrBackendSurface.h>
 #    include <gpu/ganesh/mtl/GrMtlBackendContext.h>
+#    include <gpu/ganesh/mtl/GrMtlBackendSurface.h>
 #    include <gpu/ganesh/mtl/GrMtlDirectContext.h>
-#    undef FixedPoint
-#    undef Duration
 #endif
 
 namespace Web::Painting {
@@ -108,7 +104,7 @@ private:
 
 OwnPtr<SkiaBackendContext> DisplayListPlayerSkia::create_vulkan_context(Core::VulkanContext& vulkan_context)
 {
-    GrVkBackendContext backend_context;
+    skgpu::VulkanBackendContext backend_context;
 
     backend_context.fInstance = vulkan_context.instance;
     backend_context.fDevice = vulkan_context.logical_device;
@@ -159,7 +155,7 @@ public:
     {
         GrMtlTextureInfo mtl_info;
         mtl_info.fTexture = sk_ret_cfp(metal_texture.texture());
-        auto backend_render_target = GrBackendRenderTarget(metal_texture.width(), metal_texture.height(), mtl_info);
+        auto backend_render_target = GrBackendRenderTargets::MakeMtl(metal_texture.width(), metal_texture.height(), mtl_info);
         return SkSurfaces::WrapBackendRenderTarget(m_context.get(), backend_render_target, kTopLeft_GrSurfaceOrigin, kBGRA_8888_SkColorType, nullptr, nullptr);
     }
 
@@ -317,9 +313,9 @@ static SkSamplingOptions to_skia_sampling_options(Gfx::ScalingMode scaling_mode)
 {
     switch (scaling_mode) {
     case Gfx::ScalingMode::NearestNeighbor:
+    case Gfx::ScalingMode::SmoothPixels:
         return SkSamplingOptions(SkFilterMode::kNearest);
     case Gfx::ScalingMode::BilinearBlend:
-    case Gfx::ScalingMode::SmoothPixels:
         return SkSamplingOptions(SkFilterMode::kLinear);
     case Gfx::ScalingMode::BoxSampling:
         return SkSamplingOptions(SkCubicResampler::Mitchell());
@@ -344,18 +340,13 @@ void DisplayListPlayerSkia::draw_glyph_run(DrawGlyphRun const& command)
     Vector<SkPoint> positions;
     positions.ensure_capacity(glyph_count);
     auto font_ascent = gfx_font.pixel_metrics().ascent;
-    for (auto const& glyph_or_emoji : command.glyph_run->glyphs()) {
-        auto transformed_glyph = glyph_or_emoji;
-        transformed_glyph.visit([&](auto& glyph) {
-            glyph.position.set_y(glyph.position.y() + font_ascent);
-            glyph.position = glyph.position.scaled(command.scale);
-        });
-        if (transformed_glyph.has<Gfx::DrawGlyph>()) {
-            auto& glyph = transformed_glyph.get<Gfx::DrawGlyph>();
-            auto const& point = glyph.position;
-            glyphs.append(glyph.glyph_id);
-            positions.append(to_skia_point(point));
-        }
+    for (auto const& glyph : command.glyph_run->glyphs()) {
+        auto transformed_glyph = glyph;
+        transformed_glyph.position.set_y(glyph.position.y() + font_ascent);
+        transformed_glyph.position = transformed_glyph.position.scaled(command.scale);
+        auto const& point = transformed_glyph.position;
+        glyphs.append(transformed_glyph.glyph_id);
+        positions.append(to_skia_point(point));
     }
 
     SkPaint paint;
@@ -435,23 +426,36 @@ void DisplayListPlayerSkia::restore(Restore const&)
     canvas.restore();
 }
 
-static SkBitmap alpha_mask_from_bitmap(Gfx::Bitmap const& bitmap, Gfx::Bitmap::MaskKind kind)
+template<Gfx::Bitmap::MaskKind mask_kind, Gfx::StorageFormat storage_format>
+[[maybe_unused]] static SkBitmap alpha_mask_from_bitmap_impl(Gfx::Bitmap const& bitmap)
 {
     SkBitmap alpha_mask;
     alpha_mask.allocPixels(SkImageInfo::MakeA8(bitmap.width(), bitmap.height()));
-    for (int y = 0; y < bitmap.height(); y++) {
-        for (int x = 0; x < bitmap.width(); x++) {
-            if (kind == Gfx::Bitmap::MaskKind::Luminance) {
-                auto color = bitmap.get_pixel(x, y);
-                *alpha_mask.getAddr8(x, y) = color.alpha() * color.luminosity() / 255;
-            } else {
-                VERIFY(kind == Gfx::Bitmap::MaskKind::Alpha);
-                auto color = bitmap.get_pixel(x, y);
-                *alpha_mask.getAddr8(x, y) = color.alpha();
+    int width = bitmap.width();
+    int height = bitmap.height();
+    for (int y = 0; y < height; y++) {
+        auto* dst = alpha_mask.getAddr8(0, y);
+        for (int x = 0; x < width; x++, ++dst) {
+            auto color = bitmap.unchecked_get_pixel<storage_format>(x, y);
+            if constexpr (mask_kind == Gfx::Bitmap::MaskKind::Luminance) {
+                *dst = color.alpha() * color.luminosity() / 255;
+            } else if constexpr (mask_kind == Gfx::Bitmap::MaskKind::Alpha) {
+                *dst = color.alpha();
             }
         }
     }
     return alpha_mask;
+}
+
+[[maybe_unused]] static SkBitmap alpha_mask_from_bitmap(Gfx::Bitmap const& bitmap, Gfx::Bitmap::MaskKind kind)
+{
+    if (bitmap.format() == Gfx::BitmapFormat::BGRA8888) {
+        if (kind == Gfx::Bitmap::MaskKind::Luminance)
+            return alpha_mask_from_bitmap_impl<Gfx::Bitmap::MaskKind::Luminance, Gfx::StorageFormat::BGRA8888>(bitmap);
+        VERIFY(kind == Gfx::Bitmap::MaskKind::Alpha);
+        return alpha_mask_from_bitmap_impl<Gfx::Bitmap::MaskKind::Alpha, Gfx::StorageFormat::BGRA8888>(bitmap);
+    }
+    VERIFY_NOT_REACHED();
 }
 
 void DisplayListPlayerSkia::push_stacking_context(PushStackingContext const& command)

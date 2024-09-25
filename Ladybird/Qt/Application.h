@@ -34,7 +34,7 @@ public:
     NonnullRefPtr<ImageDecoderClient::Client> image_decoder_client() const { return *m_image_decoder_client; }
     ErrorOr<void> initialize_image_decoder();
 
-    BrowserWindow& new_window(Vector<URL::URL> const& initial_urls, WebView::CookieJar&, BrowserWindow::IsPopupWindow is_popup_window = BrowserWindow::IsPopupWindow::No, Tab* parent_tab = nullptr, Optional<u64> page_index = {});
+    BrowserWindow& new_window(Vector<URL::URL> const& initial_urls, BrowserWindow::IsPopupWindow is_popup_window = BrowserWindow::IsPopupWindow::No, Tab* parent_tab = nullptr, Optional<u64> page_index = {});
 
     void show_task_manager_window();
     void close_task_manager_window();
@@ -45,6 +45,8 @@ public:
 private:
     virtual void create_platform_arguments(Core::ArgsParser&) override;
     virtual void create_platform_options(WebView::ChromeOptions&, WebView::WebContentOptions&) override;
+
+    virtual Optional<ByteString> ask_user_for_download_folder() const override;
 
     bool m_enable_qt_networking { false };
 

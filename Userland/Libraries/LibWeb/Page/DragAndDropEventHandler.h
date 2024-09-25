@@ -10,6 +10,7 @@
 #include <LibJS/Heap/GCPtr.h>
 #include <LibWeb/Forward.h>
 #include <LibWeb/HTML/DragDataStore.h>
+#include <LibWeb/Page/EventResult.h>
 #include <LibWeb/PixelUnits.h>
 
 namespace Web {
@@ -18,19 +19,19 @@ class DragAndDropEventHandler {
 public:
     void visit_edges(JS::Cell::Visitor& visitor) const;
 
-    bool has_ongoing_drag_and_drop_operation() const { return m_drag_data_store.has_value(); }
+    bool has_ongoing_drag_and_drop_operation() const { return !m_drag_data_store.is_null(); }
 
-    bool handle_drag_start(JS::Realm&, CSSPixelPoint screen_position, CSSPixelPoint page_offset, CSSPixelPoint client_offset, CSSPixelPoint offset, unsigned button, unsigned buttons, unsigned modifiers, Vector<HTML::SelectedFile> files);
-    bool handle_drag_move(JS::Realm&, JS::NonnullGCPtr<DOM::Document>, JS::NonnullGCPtr<DOM::Node>, CSSPixelPoint screen_position, CSSPixelPoint page_offset, CSSPixelPoint client_offset, CSSPixelPoint offset, unsigned button, unsigned buttons, unsigned modifiers);
-    bool handle_drag_leave(JS::Realm&, CSSPixelPoint screen_position, CSSPixelPoint page_offset, CSSPixelPoint client_offset, CSSPixelPoint offset, unsigned button, unsigned buttons, unsigned modifiers);
-    bool handle_drop(JS::Realm&, CSSPixelPoint screen_position, CSSPixelPoint page_offset, CSSPixelPoint client_offset, CSSPixelPoint offset, unsigned button, unsigned buttons, unsigned modifiers);
+    EventResult handle_drag_start(JS::Realm&, CSSPixelPoint screen_position, CSSPixelPoint page_offset, CSSPixelPoint client_offset, CSSPixelPoint offset, unsigned button, unsigned buttons, unsigned modifiers, Vector<HTML::SelectedFile> files);
+    EventResult handle_drag_move(JS::Realm&, JS::NonnullGCPtr<DOM::Document>, JS::NonnullGCPtr<DOM::Node>, CSSPixelPoint screen_position, CSSPixelPoint page_offset, CSSPixelPoint client_offset, CSSPixelPoint offset, unsigned button, unsigned buttons, unsigned modifiers);
+    EventResult handle_drag_leave(JS::Realm&, CSSPixelPoint screen_position, CSSPixelPoint page_offset, CSSPixelPoint client_offset, CSSPixelPoint offset, unsigned button, unsigned buttons, unsigned modifiers);
+    EventResult handle_drop(JS::Realm&, CSSPixelPoint screen_position, CSSPixelPoint page_offset, CSSPixelPoint client_offset, CSSPixelPoint offset, unsigned button, unsigned buttons, unsigned modifiers);
 
 private:
     enum class Cancelled {
         No,
         Yes,
     };
-    bool handle_drag_end(JS::Realm&, Cancelled, CSSPixelPoint screen_position, CSSPixelPoint page_offset, CSSPixelPoint client_offset, CSSPixelPoint offset, unsigned button, unsigned buttons, unsigned modifiers);
+    EventResult handle_drag_end(JS::Realm&, Cancelled, CSSPixelPoint screen_position, CSSPixelPoint page_offset, CSSPixelPoint client_offset, CSSPixelPoint offset, unsigned button, unsigned buttons, unsigned modifiers);
 
     JS::NonnullGCPtr<HTML::DragEvent> fire_a_drag_and_drop_event(
         JS::Realm&,
@@ -49,7 +50,7 @@ private:
 
     void reset();
 
-    Optional<HTML::DragDataStore> m_drag_data_store;
+    RefPtr<HTML::DragDataStore> m_drag_data_store;
 
     // https://html.spec.whatwg.org/multipage/dnd.html#source-node
     JS::GCPtr<DOM::EventTarget> m_source_node;

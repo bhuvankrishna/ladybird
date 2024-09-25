@@ -37,6 +37,8 @@ CSSGroupingRule
 CSSImportRule
 CSSKeyframeRule
 CSSKeyframesRule
+CSSLayerBlockRule
+CSSLayerStatementRule
 CSSMediaRule
 CSSNamespaceRule
 CSSRule
@@ -51,6 +53,7 @@ CanvasPattern
 CanvasRenderingContext2D
 CharacterData
 Clipboard
+ClipboardEvent
 CloseEvent
 CloseWatcher
 Comment
@@ -96,6 +99,7 @@ EventTarget
 File
 FileList
 FileReader
+FileSystemEntry
 FinalizationRegistry
 Float32Array
 Float64Array
@@ -204,6 +208,7 @@ KeyframeEffect
 Location
 Map
 MathMLElement
+MediaCapabilities
 MediaError
 MediaList
 MediaQueryList
@@ -285,6 +290,7 @@ SVGGElement
 SVGGeometryElement
 SVGGradientElement
 SVGGraphicsElement
+SVGImageElement
 SVGLength
 SVGLineElement
 SVGLinearGradientElement
@@ -315,6 +321,9 @@ SVGUseElement
 Screen
 ScreenOrientation
 Selection
+ServiceWorker
+ServiceWorkerContainer
+ServiceWorkerRegistration
 Set
 ShadowRealm
 ShadowRoot
@@ -335,6 +344,8 @@ TextDecoder
 TextEncoder
 TextMetrics
 TextTrack
+TextTrackCue
+TextTrackCueList
 TextTrackList
 TimeRanges
 ToggleEvent
@@ -352,6 +363,8 @@ Uint32Array
 Uint8Array
 Uint8ClampedArray
 UserActivation
+VTTCue
+VTTRegion
 ValidityState
 VideoTrack
 VideoTrackList
@@ -374,12 +387,14 @@ XMLHttpRequest
 XMLHttpRequestEventTarget
 XMLHttpRequestUpload
 XMLSerializer
+__finishTest
 __preventMultipleTestFunctions
 animationFrame
 asyncTest
 printElement
 println
 promiseTest
+spoofCurrentURL
 test
 timeout
 webkitURL

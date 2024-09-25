@@ -19,13 +19,14 @@
 #include <LibJS/Console.h>
 #include <LibJS/Forward.h>
 #include <LibURL/URL.h>
+#include <LibUnicode/Forward.h>
 #include <LibWeb/CSS/CSSStyleSheet.h>
 #include <LibWeb/CSS/StyleSheetList.h>
 #include <LibWeb/Cookie/Cookie.h>
 #include <LibWeb/DOM/NonElementParentNode.h>
 #include <LibWeb/DOM/ParentNode.h>
 #include <LibWeb/HTML/BrowsingContext.h>
-#include <LibWeb/HTML/CrossOrigin/CrossOriginOpenerPolicy.h>
+#include <LibWeb/HTML/CrossOrigin/OpenerPolicy.h>
 #include <LibWeb/HTML/DocumentReadyState.h>
 #include <LibWeb/HTML/HTMLScriptElement.h>
 #include <LibWeb/HTML/History.h>
@@ -35,6 +36,7 @@
 #include <LibWeb/HTML/SandboxingFlagSet.h>
 #include <LibWeb/HTML/Scripting/Environments.h>
 #include <LibWeb/HTML/VisibilityState.h>
+#include <LibWeb/InvalidateDisplayList.h>
 #include <LibWeb/WebIDL/ExceptionOr.h>
 #include <LibWeb/WebIDL/ObservableArray.h>
 
@@ -149,8 +151,8 @@ public:
     HTML::Origin origin() const;
     void set_origin(HTML::Origin const& origin);
 
-    HTML::CrossOriginOpenerPolicy const& cross_origin_opener_policy() const { return m_cross_origin_opener_policy; }
-    void set_cross_origin_opener_policy(HTML::CrossOriginOpenerPolicy policy) { m_cross_origin_opener_policy = move(policy); }
+    HTML::OpenerPolicy const& opener_policy() const { return m_opener_policy; }
+    void set_opener_policy(HTML::OpenerPolicy policy) { m_opener_policy = move(policy); }
 
     URL::URL parse_url(StringView) const;
 
@@ -160,9 +162,11 @@ public:
     CSS::StyleSheetList& style_sheets();
     CSS::StyleSheetList const& style_sheets() const;
 
-    void for_each_css_style_sheet(Function<void(CSS::CSSStyleSheet&)>&& callback) const;
+    void for_each_active_css_style_sheet(Function<void(CSS::CSSStyleSheet&)>&& callback) const;
 
     CSS::StyleSheetList* style_sheets_for_bindings() { return &style_sheets(); }
+
+    Optional<String> get_style_sheet_source(CSS::StyleSheetIdentifier const&) const;
 
     virtual FlyString node_name() const override { return "#document"_fly_string; }
 
@@ -240,7 +244,7 @@ public:
 
     void set_needs_layout();
 
-    void invalidate_layout();
+    void invalidate_layout_tree();
     void invalidate_stacking_context_tree();
 
     virtual bool is_child_allowed(Node const&) const override;
@@ -367,8 +371,8 @@ public:
     WebIDL::ExceptionOr<JS::GCPtr<HTML::WindowProxy>> open(StringView url, StringView name, StringView features);
     WebIDL::ExceptionOr<void> close();
 
-    HTML::Window* default_view() { return m_window.ptr(); }
-    HTML::Window const* default_view() const { return m_window.ptr(); }
+    JS::GCPtr<HTML::WindowProxy const> default_view() const;
+    JS::GCPtr<HTML::WindowProxy> default_view();
 
     String const& content_type() const { return m_content_type; }
     void set_content_type(String content_type) { m_content_type = move(content_type); }
@@ -574,6 +578,8 @@ public:
 
     void set_salvageable(bool value) { m_salvageable = value; }
 
+    void make_unsalvageable(String reason);
+
     HTML::ListOfAvailableImages& list_of_available_images();
     HTML::ListOfAvailableImages const& list_of_available_images() const;
 
@@ -690,6 +696,8 @@ public:
     void set_cursor_position(JS::NonnullGCPtr<DOM::Position>);
     bool increment_cursor_position_offset();
     bool decrement_cursor_position_offset();
+    bool increment_cursor_position_to_next_word();
+    bool decrement_cursor_position_to_previous_word();
 
     bool cursor_blink_state() const { return m_cursor_blink_state; }
 
@@ -700,8 +708,8 @@ public:
     void set_cached_navigable(JS::GCPtr<HTML::Navigable>);
 
     [[nodiscard]] bool needs_repaint() const { return m_needs_repaint; }
-    void set_needs_display();
-    void set_needs_display(CSSPixelRect const&);
+    void set_needs_display(InvalidateDisplayList = InvalidateDisplayList::Yes);
+    void set_needs_display(CSSPixelRect const&, InvalidateDisplayList = InvalidateDisplayList::Yes);
 
     struct PaintConfig {
         bool paint_overlay { false };
@@ -714,6 +722,9 @@ public:
     RefPtr<Painting::DisplayList> record_display_list(PaintConfig);
 
     void invalidate_display_list();
+
+    Unicode::Segmenter& grapheme_segmenter() const;
+    Unicode::Segmenter& word_segmenter() const;
 
 protected:
     virtual void initialize(JS::Realm&) override;
@@ -743,8 +754,6 @@ private:
     void dispatch_events_for_animation_if_necessary(JS::NonnullGCPtr<Animations::Animation>);
 
     void reset_cursor_blink_cycle();
-
-    void make_unsalvageable(String reason);
 
     JS::NonnullGCPtr<Page> m_page;
     OwnPtr<CSS::StyleComputer> m_style_computer;
@@ -857,7 +866,7 @@ private:
     Optional<URL::URL> m_about_base_url;
 
     // https://html.spec.whatwg.org/multipage/dom.html#concept-document-coop
-    HTML::CrossOriginOpenerPolicy m_cross_origin_opener_policy;
+    HTML::OpenerPolicy m_opener_policy;
 
     // https://html.spec.whatwg.org/multipage/dom.html#the-document's-referrer
     String m_referrer;
@@ -993,6 +1002,9 @@ private:
 
     Optional<PaintConfig> m_cached_display_list_paint_config;
     RefPtr<Painting::DisplayList> m_cached_display_list;
+
+    mutable OwnPtr<Unicode::Segmenter> m_grapheme_segmenter;
+    mutable OwnPtr<Unicode::Segmenter> m_word_segmenter;
 };
 
 template<>

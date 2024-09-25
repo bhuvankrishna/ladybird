@@ -2,6 +2,7 @@
  * Copyright (c) 2020, the SerenityOS developers.
  * Copyright (c) 2023, Sam Atkins <atkinssj@serenityos.org>
  * Copyright (c) 2024, Bastiaan van der Plaat <bastiaan.v.d.plaat@gmail.com>
+ * Copyright (c) 2024, Jelle Raaijmakers <jelle@gmta.nl>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -21,6 +22,7 @@
 #include <LibWeb/HTML/Numbers.h>
 #include <LibWeb/Infra/Strings.h>
 #include <LibWeb/Namespace.h>
+#include <LibWeb/Selection/Selection.h>
 
 namespace Web::HTML {
 
@@ -70,21 +72,22 @@ void HTMLTextAreaElement::did_receive_focus()
 {
     if (!m_text_node)
         return;
-    m_text_node->invalidate_style();
+    m_text_node->invalidate_style(DOM::StyleInvalidationReason::DidReceiveFocus);
 
     if (m_placeholder_text_node)
-        m_placeholder_text_node->invalidate_style();
+        m_placeholder_text_node->invalidate_style(DOM::StyleInvalidationReason::DidReceiveFocus);
 
-    document().set_cursor_position(DOM::Position::create(realm(), *m_text_node, 0));
+    if (auto cursor = document().cursor_position(); !cursor || m_text_node != cursor->node())
+        document().set_cursor_position(DOM::Position::create(realm(), *m_text_node, 0));
 }
 
 void HTMLTextAreaElement::did_lose_focus()
 {
     if (m_text_node)
-        m_text_node->invalidate_style();
+        m_text_node->invalidate_style(DOM::StyleInvalidationReason::DidLoseFocus);
 
     if (m_placeholder_text_node)
-        m_placeholder_text_node->invalidate_style();
+        m_placeholder_text_node->invalidate_style(DOM::StyleInvalidationReason::DidLoseFocus);
 
     // The change event fires when the value is committed, if that makes sense for the control,
     // or else when the control loses focus
@@ -114,6 +117,17 @@ void HTMLTextAreaElement::reset_algorithm()
         m_text_node->set_text_content(m_raw_value);
         update_placeholder_visibility();
     }
+}
+
+// https://html.spec.whatwg.org/multipage/forms.html#the-textarea-element:concept-node-clone-ext
+WebIDL::ExceptionOr<void> HTMLTextAreaElement::cloned(DOM::Node& copy, bool)
+{
+    // The cloning steps for textarea elements must propagate the raw value and dirty value flag from the node being cloned to the copy.
+    auto& textarea_copy = verify_cast<HTMLTextAreaElement>(copy);
+    textarea_copy.m_raw_value = m_raw_value;
+    textarea_copy.m_dirty_value = m_dirty_value;
+
+    return {};
 }
 
 void HTMLTextAreaElement::form_associated_element_was_inserted()
@@ -150,8 +164,6 @@ String HTMLTextAreaElement::value() const
 // https://html.spec.whatwg.org/multipage/form-elements.html#dom-textarea-value
 void HTMLTextAreaElement::set_value(String const& value)
 {
-    auto& realm = this->realm();
-
     // 1. Let oldAPIValue be this element's API value.
     auto old_api_value = api_value();
 
@@ -168,15 +180,19 @@ void HTMLTextAreaElement::set_value(String const& value)
             m_text_node->set_data(m_raw_value);
             update_placeholder_visibility();
 
-            document().set_cursor_position(DOM::Position::create(realm, *m_text_node, m_text_node->data().bytes().size()));
+            set_the_selection_range(m_text_node->length(), m_text_node->length());
         }
     }
 }
 
 void HTMLTextAreaElement::set_raw_value(String value)
 {
+    auto old_raw_value = move(m_raw_value);
     m_raw_value = move(value);
     m_api_value.clear();
+
+    if (m_raw_value != old_raw_value)
+        relevant_value_was_changed(m_text_node);
 }
 
 // https://html.spec.whatwg.org/multipage/form-elements.html#the-textarea-element:concept-fe-api-value-3
@@ -186,6 +202,13 @@ String HTMLTextAreaElement::api_value() const
     if (!m_api_value.has_value())
         m_api_value = Infra::normalize_newlines(m_raw_value);
     return *m_api_value;
+}
+
+// https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#concept-textarea/input-relevant-value
+WebIDL::ExceptionOr<void> HTMLTextAreaElement::set_relevant_value(String const& value)
+{
+    set_value(value);
+    return {};
 }
 
 // https://html.spec.whatwg.org/multipage/form-elements.html#dom-textarea-textlength
@@ -279,6 +302,36 @@ unsigned HTMLTextAreaElement::rows() const
 WebIDL::ExceptionOr<void> HTMLTextAreaElement::set_rows(unsigned rows)
 {
     return set_attribute(HTML::AttributeNames::rows, MUST(String::number(rows)));
+}
+
+WebIDL::UnsignedLong HTMLTextAreaElement::selection_start_binding() const
+{
+    return selection_start().value();
+}
+
+WebIDL::ExceptionOr<void> HTMLTextAreaElement::set_selection_start_binding(WebIDL::UnsignedLong const& value)
+{
+    return set_selection_start(value);
+}
+
+WebIDL::UnsignedLong HTMLTextAreaElement::selection_end_binding() const
+{
+    return selection_end().value();
+}
+
+WebIDL::ExceptionOr<void> HTMLTextAreaElement::set_selection_end_binding(WebIDL::UnsignedLong const& value)
+{
+    return set_selection_end(value);
+}
+
+String HTMLTextAreaElement::selection_direction_binding() const
+{
+    return selection_direction().value();
+}
+
+void HTMLTextAreaElement::set_selection_direction_binding(String direction)
+{
+    set_selection_direction(direction);
 }
 
 void HTMLTextAreaElement::create_shadow_tree_if_needed()
@@ -404,6 +457,17 @@ void HTMLTextAreaElement::queue_firing_input_event()
         auto change_event = DOM::Event::create(realm(), HTML::EventNames::input, { .bubbles = true, .composed = true });
         dispatch_event(change_event);
     });
+}
+
+void HTMLTextAreaElement::selection_was_changed(size_t selection_start, size_t selection_end)
+{
+    if (!m_text_node || !document().cursor_position() || document().cursor_position()->node() != m_text_node)
+        return;
+
+    document().set_cursor_position(DOM::Position::create(realm(), *m_text_node, selection_end));
+
+    if (auto selection = document().get_selection())
+        MUST(selection->set_base_and_extent(*m_text_node, selection_start, *m_text_node, selection_end));
 }
 
 }

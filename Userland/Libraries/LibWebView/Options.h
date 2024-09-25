@@ -30,7 +30,17 @@ enum class AllowPopups {
     Yes,
 };
 
+enum class DisableScripting {
+    No,
+    Yes,
+};
+
 enum class DisableSQLDatabase {
+    No,
+    Yes,
+};
+
+enum class EnableAutoplay {
     No,
     Yes,
 };
@@ -43,6 +53,7 @@ struct ChromeOptions {
     NewWindow new_window { NewWindow::No };
     ForceNewProcess force_new_process { ForceNewProcess::No };
     AllowPopups allow_popups { AllowPopups::No };
+    DisableScripting disable_scripting { DisableScripting::No };
     DisableSQLDatabase disable_sql_database { DisableSQLDatabase::No };
     Optional<ProcessType> debug_helper_process {};
     Optional<ProcessType> profile_helper_process {};
@@ -93,6 +104,7 @@ struct WebContentOptions {
     String command_line;
     String executable_path;
     Optional<ByteString> config_path {};
+    Optional<StringView> user_agent_preset {};
     IsLayoutTestMode is_layout_test_mode { IsLayoutTestMode::No };
     UseLagomNetworking use_lagom_networking { UseLagomNetworking::Yes };
     LogAllJSExceptions log_all_js_exceptions { LogAllJSExceptions::No };
@@ -101,6 +113,7 @@ struct WebContentOptions {
     ExposeInternalsObject expose_internals_object { ExposeInternalsObject::No };
     ForceCPUPainting force_cpu_painting { ForceCPUPainting::No };
     ForceFontconfig force_fontconfig { ForceFontconfig::No };
+    EnableAutoplay enable_autoplay { EnableAutoplay::No };
 };
 
 }

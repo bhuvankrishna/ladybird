@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include <LibAudio/Loader.h>
 #include <LibJS/Runtime/Promise.h>
+#include <LibMedia/Audio/Loader.h>
 #include <LibMedia/PlaybackManager.h>
 #include <LibWeb/Bindings/HTMLMediaElementPrototype.h>
 #include <LibWeb/Bindings/Intrinsics.h>
@@ -204,12 +204,9 @@ Bindings::CanPlayTypeResult HTMLMediaElement::can_play_type(StringView type) con
             return Bindings::CanPlayTypeResult::Probably;
         if (mime_type->subtype() == "flac"sv)
             return Bindings::CanPlayTypeResult::Probably;
-        // We don't currently support `ogg`. We'll also have to check parameters, e.g. from Bandcamp:
-        // audio/ogg; codecs="vorbis"
-        // audio/ogg; codecs="opus"
+        // "Maybe" because we support Ogg Vorbis, but "ogg" can contain other codecs
         if (mime_type->subtype() == "ogg"sv)
-            return Bindings::CanPlayTypeResult::Empty;
-        // Quite OK Audio
+            return Bindings::CanPlayTypeResult::Maybe;
         if (mime_type->subtype() == "qoa"sv)
             return Bindings::CanPlayTypeResult::Probably;
         return Bindings::CanPlayTypeResult::Maybe;
@@ -1914,8 +1911,11 @@ void HTMLMediaElement::reject_pending_play_promises(ReadonlySpan<JS::NonnullGCPt
         WebIDL::reject_promise(realm, promise, error);
 }
 
-WebIDL::ExceptionOr<void> HTMLMediaElement::handle_keydown(Badge<Web::EventHandler>, UIEvents::KeyCode key)
+WebIDL::ExceptionOr<bool> HTMLMediaElement::handle_keydown(Badge<Web::EventHandler>, UIEvents::KeyCode key, u32 modifiers)
 {
+    if (modifiers != UIEvents::KeyModifier::Mod_None)
+        return false;
+
     switch (key) {
     case UIEvents::KeyCode::Key_Space:
         TRY(toggle_playback());
@@ -1961,10 +1961,10 @@ WebIDL::ExceptionOr<void> HTMLMediaElement::handle_keydown(Badge<Web::EventHandl
         break;
 
     default:
-        break;
+        return false;
     }
 
-    return {};
+    return true;
 }
 
 void HTMLMediaElement::set_layout_display_time(Badge<Painting::MediaPaintable>, Optional<double> display_time)

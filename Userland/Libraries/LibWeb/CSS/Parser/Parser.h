@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2020-2021, the SerenityOS developers.
- * Copyright (c) 2021-2024, Sam Atkins <atkinssj@serenityos.org>
+ * Copyright (c) 2021-2024, Sam Atkins <sam@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -30,7 +30,7 @@
 #include <LibWeb/CSS/Ratio.h>
 #include <LibWeb/CSS/Selector.h>
 #include <LibWeb/CSS/StyleValues/AbstractImageStyleValue.h>
-#include <LibWeb/CSS/StyleValues/CalculatedStyleValue.h>
+#include <LibWeb/CSS/StyleValues/CSSMathValue.h>
 #include <LibWeb/CSS/Supports.h>
 #include <LibWeb/Forward.h>
 
@@ -75,7 +75,7 @@ public:
 
     static NonnullRefPtr<CSSStyleValue> resolve_unresolved_style_value(ParsingContext const&, DOM::Element&, Optional<CSS::Selector::PseudoElement::Type>, PropertyID, UnresolvedStyleValue const&);
 
-    [[nodiscard]] LengthOrCalculated parse_as_sizes_attribute();
+    [[nodiscard]] LengthOrCalculated parse_as_sizes_attribute(DOM::Element const& element, HTML::HTMLImageElement const* img = nullptr);
 
 private:
     Parser(ParsingContext const&, Vector<Token>);
@@ -170,10 +170,17 @@ private:
     template<typename T>
     Vector<ParsedFontFace::Source> parse_font_face_src(TokenStream<T>&);
 
+    enum class AllowBlankLayerName {
+        No,
+        Yes,
+    };
+    Optional<FlyString> parse_layer_name(TokenStream<ComponentValue>&, AllowBlankLayerName);
+
     JS::GCPtr<CSSRule> convert_to_rule(NonnullRefPtr<Rule>);
-    JS::GCPtr<CSSMediaRule> convert_to_media_rule(Rule&);
     JS::GCPtr<CSSKeyframesRule> convert_to_keyframes_rule(Rule&);
     JS::GCPtr<CSSImportRule> convert_to_import_rule(Rule&);
+    JS::GCPtr<CSSRule> convert_to_layer_rule(Rule&);
+    JS::GCPtr<CSSMediaRule> convert_to_media_rule(Rule&);
     JS::GCPtr<CSSNamespaceRule> convert_to_namespace_rule(Rule&);
     JS::GCPtr<CSSSupportsRule> convert_to_supports_rule(Rule&);
 
@@ -194,12 +201,6 @@ private:
     Optional<TimeOrCalculated> parse_time(TokenStream<ComponentValue>&);
     Optional<TimePercentage> parse_time_percentage(TokenStream<ComponentValue>&);
 
-    Optional<Color> parse_rgb_color(Vector<ComponentValue> const&);
-    Optional<Color> parse_hsl_color(Vector<ComponentValue> const&);
-    Optional<Color> parse_hwb_color(Vector<ComponentValue> const&);
-    Optional<Color> parse_oklab_color(Vector<ComponentValue> const&);
-    Optional<Color> parse_oklch_color(Vector<ComponentValue> const&);
-    Optional<Color> parse_color(TokenStream<ComponentValue>&);
     Optional<LengthOrCalculated> parse_source_size_value(TokenStream<ComponentValue>&);
     Optional<Ratio> parse_ratio(TokenStream<ComponentValue>&);
     Optional<Gfx::UnicodeRange> parse_unicode_range(TokenStream<ComponentValue>&);
@@ -233,16 +234,19 @@ private:
     };
     Optional<PropertyAndValue> parse_css_value_for_properties(ReadonlySpan<PropertyID>, TokenStream<ComponentValue>&);
     RefPtr<CSSStyleValue> parse_builtin_value(TokenStream<ComponentValue>&);
-    RefPtr<CalculatedStyleValue> parse_calculated_value(ComponentValue const&);
+    RefPtr<CSSMathValue> parse_calculated_value(ComponentValue const&);
     RefPtr<CustomIdentStyleValue> parse_custom_ident_value(TokenStream<ComponentValue>&, std::initializer_list<StringView> blacklist);
     // NOTE: Implemented in generated code. (GenerateCSSMathFunctions.cpp)
     OwnPtr<CalculationNode> parse_math_function(PropertyID, Function const&);
     OwnPtr<CalculationNode> parse_a_calc_function_node(Function const&);
-    RefPtr<CSSStyleValue> parse_dimension_value(TokenStream<ComponentValue>&);
-    RefPtr<CSSStyleValue> parse_integer_value(TokenStream<ComponentValue>&);
-    RefPtr<CSSStyleValue> parse_number_value(TokenStream<ComponentValue>&);
-    RefPtr<CSSStyleValue> parse_number_or_percentage_value(TokenStream<ComponentValue>&);
     RefPtr<CSSStyleValue> parse_keyword_value(TokenStream<ComponentValue>&);
+    RefPtr<CSSStyleValue> parse_hue_value(TokenStream<ComponentValue>&);
+    RefPtr<CSSStyleValue> parse_solidus_and_alpha_value(TokenStream<ComponentValue>&);
+    RefPtr<CSSStyleValue> parse_rgb_color_value(TokenStream<ComponentValue>&);
+    RefPtr<CSSStyleValue> parse_hsl_color_value(TokenStream<ComponentValue>&);
+    RefPtr<CSSStyleValue> parse_hwb_color_value(TokenStream<ComponentValue>&);
+    RefPtr<CSSStyleValue> parse_oklab_color_value(TokenStream<ComponentValue>&);
+    RefPtr<CSSStyleValue> parse_oklch_color_value(TokenStream<ComponentValue>&);
     RefPtr<CSSStyleValue> parse_color_value(TokenStream<ComponentValue>&);
     RefPtr<CSSStyleValue> parse_counter_value(TokenStream<ComponentValue>&);
     enum class AllowReversed {
@@ -262,6 +266,22 @@ private:
     RefPtr<PositionStyleValue> parse_position_value(TokenStream<ComponentValue>&, PositionParsingMode = PositionParsingMode::Normal);
     RefPtr<CSSStyleValue> parse_filter_value_list_value(TokenStream<ComponentValue>&);
 
+    RefPtr<CSSStyleValue> parse_dimension_value(TokenStream<ComponentValue>&);
+    RefPtr<CSSStyleValue> parse_angle_value(TokenStream<ComponentValue>&);
+    RefPtr<CSSStyleValue> parse_angle_percentage_value(TokenStream<ComponentValue>&);
+    RefPtr<CSSStyleValue> parse_flex_value(TokenStream<ComponentValue>&);
+    RefPtr<CSSStyleValue> parse_frequency_value(TokenStream<ComponentValue>&);
+    RefPtr<CSSStyleValue> parse_frequency_percentage_value(TokenStream<ComponentValue>&);
+    RefPtr<CSSStyleValue> parse_integer_value(TokenStream<ComponentValue>&);
+    RefPtr<CSSStyleValue> parse_length_value(TokenStream<ComponentValue>&);
+    RefPtr<CSSStyleValue> parse_length_percentage_value(TokenStream<ComponentValue>&);
+    RefPtr<CSSStyleValue> parse_number_value(TokenStream<ComponentValue>&);
+    RefPtr<CSSStyleValue> parse_number_percentage_value(TokenStream<ComponentValue>& tokens);
+    RefPtr<CSSStyleValue> parse_percentage_value(TokenStream<ComponentValue>& tokens);
+    RefPtr<CSSStyleValue> parse_resolution_value(TokenStream<ComponentValue>&);
+    RefPtr<CSSStyleValue> parse_time_value(TokenStream<ComponentValue>&);
+    RefPtr<CSSStyleValue> parse_time_percentage_value(TokenStream<ComponentValue>&);
+
     template<typename ParseFunction>
     RefPtr<CSSStyleValue> parse_comma_separated_value_list(TokenStream<ComponentValue>&, ParseFunction);
     RefPtr<CSSStyleValue> parse_simple_comma_separated_value_list(PropertyID, TokenStream<ComponentValue>&);
@@ -275,12 +295,13 @@ private:
     RefPtr<CSSStyleValue> parse_border_value(PropertyID, TokenStream<ComponentValue>&);
     RefPtr<CSSStyleValue> parse_border_radius_value(TokenStream<ComponentValue>&);
     RefPtr<CSSStyleValue> parse_border_radius_shorthand_value(TokenStream<ComponentValue>&);
+    RefPtr<CSSStyleValue> parse_columns_value(TokenStream<ComponentValue>&);
     RefPtr<CSSStyleValue> parse_content_value(TokenStream<ComponentValue>&);
     RefPtr<CSSStyleValue> parse_counter_increment_value(TokenStream<ComponentValue>&);
     RefPtr<CSSStyleValue> parse_counter_reset_value(TokenStream<ComponentValue>&);
     RefPtr<CSSStyleValue> parse_counter_set_value(TokenStream<ComponentValue>&);
     RefPtr<CSSStyleValue> parse_display_value(TokenStream<ComponentValue>&);
-    RefPtr<CSSStyleValue> parse_flex_value(TokenStream<ComponentValue>&);
+    RefPtr<CSSStyleValue> parse_flex_shorthand_value(TokenStream<ComponentValue>&);
     RefPtr<CSSStyleValue> parse_flex_flow_value(TokenStream<ComponentValue>&);
     RefPtr<CSSStyleValue> parse_font_value(TokenStream<ComponentValue>&);
     RefPtr<CSSStyleValue> parse_font_family_value(TokenStream<ComponentValue>&);
@@ -308,7 +329,7 @@ private:
     RefPtr<CSSStyleValue> parse_grid_auto_track_sizes(TokenStream<ComponentValue>&);
     RefPtr<GridAutoFlowStyleValue> parse_grid_auto_flow_value(TokenStream<ComponentValue>&);
     RefPtr<CSSStyleValue> parse_grid_track_size_list_shorthand_value(PropertyID, TokenStream<ComponentValue>&);
-    RefPtr<CSSStyleValue> parse_grid_track_placement(TokenStream<ComponentValue>&);
+    RefPtr<GridTrackPlacementStyleValue> parse_grid_track_placement(TokenStream<ComponentValue>&);
     RefPtr<CSSStyleValue> parse_grid_track_placement_shorthand_value(PropertyID, TokenStream<ComponentValue>&);
     RefPtr<CSSStyleValue> parse_grid_template_areas_value(TokenStream<ComponentValue>&);
     RefPtr<CSSStyleValue> parse_grid_area_shorthand_value(TokenStream<ComponentValue>&);

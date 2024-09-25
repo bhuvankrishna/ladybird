@@ -11,6 +11,7 @@
 #include <LibUnicode/CharacterTypes.h>
 #include <LibWeb/CSS/SystemColor.h>
 #include <LibWeb/DOM/Document.h>
+#include <LibWeb/DOM/Range.h>
 #include <LibWeb/HTML/HTMLHtmlElement.h>
 #include <LibWeb/HTML/Window.h>
 #include <LibWeb/Layout/BlockContainer.h>
@@ -24,6 +25,7 @@
 #include <LibWeb/Painting/TextPaintable.h>
 #include <LibWeb/Painting/ViewportPaintable.h>
 #include <LibWeb/Platform/FontPlugin.h>
+#include <LibWeb/Selection/Selection.h>
 
 namespace Web::Painting {
 
@@ -125,7 +127,7 @@ void PaintableBox::set_scroll_offset(CSSPixelPoint offset)
     // 4. Append the element to doc’s pending scroll event targets.
     document.pending_scroll_event_targets().append(*layout_box().dom_node());
 
-    set_needs_display();
+    set_needs_display(InvalidateDisplayList::No);
 }
 
 void PaintableBox::scroll_by(int delta_x, int delta_y)
@@ -243,6 +245,11 @@ bool PaintableBox::is_scrollable(ScrollDirection direction) const
     return overflow == CSS::Overflow::Scroll;
 }
 
+bool PaintableBox::is_scrollable() const
+{
+    return is_scrollable(ScrollDirection::Horizontal) || is_scrollable(ScrollDirection::Vertical);
+}
+
 static constexpr CSSPixels scrollbar_thumb_thickness = 8;
 
 Optional<CSSPixelRect> PaintableBox::scroll_thumb_rect(ScrollDirection direction) const
@@ -280,7 +287,9 @@ Optional<PaintableBox::ScrollbarData> PaintableBox::compute_scrollbar_data(Scrol
     if (scroll_overflow_size == 0)
         return {};
 
-    auto thumb_length = scrollport_size * (scrollport_size / scroll_overflow_size);
+    auto min_thumb_length = min(scrollport_size, 24);
+    auto thumb_length = max(scrollport_size * (scrollport_size / scroll_overflow_size), min_thumb_length);
+
     CSSPixelFraction scroll_size = 0;
     if (scroll_overflow_size > scrollport_size)
         scroll_size = (scrollport_size - thumb_length) / (scroll_overflow_size - scrollport_size);
@@ -605,6 +614,9 @@ void paint_text_decoration(PaintContext& context, TextPaintable const& paintable
 
 void paint_text_fragment(PaintContext& context, TextPaintable const& paintable, PaintableFragment const& fragment, PaintPhase phase)
 {
+    if (!paintable.is_visible())
+        return;
+
     auto& painter = context.display_list_recorder();
 
     if (phase == PaintPhase::Foreground) {
@@ -835,11 +847,17 @@ Optional<HitTestResult> PaintableBox::hit_test(CSSPixelPoint position, HitTestTy
 {
     Optional<HitTestResult> result;
     (void)PaintableBox::hit_test(position, type, [&](HitTestResult candidate) {
-        VERIFY(!result.has_value());
-        if (!candidate.paintable->visible_for_hit_testing())
-            return TraversalDecision::Continue;
-        result = move(candidate);
-        return TraversalDecision::Break;
+        if (candidate.paintable->visible_for_hit_testing()) {
+            if (!result.has_value()
+                || candidate.vertical_distance.value_or(CSSPixels::max_integer_value) < result->vertical_distance.value_or(CSSPixels::max_integer_value)
+                || candidate.horizontal_distance.value_or(CSSPixels::max_integer_value) < result->horizontal_distance.value_or(CSSPixels::max_integer_value)) {
+                result = move(candidate);
+            }
+        }
+
+        if (result.has_value() && (type == HitTestType::Exact || (result->vertical_distance == 0 && result->horizontal_distance == 0)))
+            return TraversalDecision::Break;
+        return TraversalDecision::Continue;
     });
     return result;
 }
@@ -864,7 +882,6 @@ TraversalDecision PaintableWithLines::hit_test(CSSPixelPoint position, HitTestTy
             return TraversalDecision::Break;
     }
 
-    Optional<HitTestResult> last_good_candidate;
     for (auto const& fragment : fragments()) {
         if (fragment.paintable().stacking_context())
             continue;
@@ -872,33 +889,62 @@ TraversalDecision PaintableWithLines::hit_test(CSSPixelPoint position, HitTestTy
         if (fragment_absolute_rect.contains(position_adjusted_by_scroll_offset)) {
             if (fragment.paintable().hit_test(position, type, callback) == TraversalDecision::Break)
                 return TraversalDecision::Break;
-            HitTestResult hit_test_result { const_cast<Paintable&>(fragment.paintable()), fragment.text_index_at(position_adjusted_by_scroll_offset.x()) };
+            HitTestResult hit_test_result { const_cast<Paintable&>(fragment.paintable()), fragment.text_index_at(position_adjusted_by_scroll_offset.x()), 0, 0 };
             if (callback(hit_test_result) == TraversalDecision::Break)
                 return TraversalDecision::Break;
-        }
+        } else if (type == HitTestType::TextCursor) {
+            auto const* common_ancestor_parent = [&]() -> DOM::Node const* {
+                auto selection = document().get_selection();
+                if (!selection)
+                    return nullptr;
+                auto range = selection->range();
+                if (!range)
+                    return nullptr;
+                auto common_ancestor = range->common_ancestor_container();
+                if (common_ancestor->parent())
+                    return common_ancestor->parent();
+                return common_ancestor;
+            }();
 
-        // If we reached this point, the position is not within the fragment. However, the fragment start or end might be the place to place the cursor.
-        // This determines whether the fragment is a good candidate for the position. The last such good fragment is chosen.
-        // The best candidate is either the end of the line above, the beginning of the line below, or the beginning or end of the current line.
-        // We arbitrarily choose to consider the end of the line above and ignore the beginning of the line below.
-        // If we knew the direction of selection, we could make a better choice.
-        if (fragment_absolute_rect.bottom() - 1 <= position_adjusted_by_scroll_offset.y()) { // fully below the fragment
-            last_good_candidate = HitTestResult { const_cast<Paintable&>(fragment.paintable()), fragment.start() + fragment.length() };
-        } else if (fragment_absolute_rect.top() <= position_adjusted_by_scroll_offset.y()) { // vertically within the fragment
-            if (position_adjusted_by_scroll_offset.x() < fragment_absolute_rect.left()) {    // left of the fragment
-                if (!last_good_candidate.has_value()) {                                      // first fragment of the line
-                    last_good_candidate = HitTestResult { const_cast<Paintable&>(fragment.paintable()), fragment.start() };
+            auto const* fragment_dom_node = fragment.layout_node().dom_node();
+            if (common_ancestor_parent && fragment_dom_node && common_ancestor_parent->is_ancestor_of(*fragment_dom_node)) {
+                // If we reached this point, the position is not within the fragment. However, the fragment start or end might be
+                // the place to place the cursor. To determine the best place, we first find the closest fragment horizontally to
+                // the cursor. If we could not find one, then find for the closest vertically above the cursor.
+                // If we knew the direction of selection, we would look above if selecting upward.
+                if (fragment_absolute_rect.bottom() - 1 <= position_adjusted_by_scroll_offset.y()) { // fully below the fragment
+                    HitTestResult hit_test_result {
+                        .paintable = const_cast<Paintable&>(fragment.paintable()),
+                        .index_in_node = fragment.start() + fragment.length(),
+                        .vertical_distance = position_adjusted_by_scroll_offset.y() - fragment_absolute_rect.bottom(),
+                    };
+                    if (callback(hit_test_result) == TraversalDecision::Break)
+                        return TraversalDecision::Break;
+                } else if (fragment_absolute_rect.top() <= position_adjusted_by_scroll_offset.y()) { // vertically within the fragment
+                    if (position_adjusted_by_scroll_offset.x() < fragment_absolute_rect.left()) {
+                        HitTestResult hit_test_result {
+                            .paintable = const_cast<Paintable&>(fragment.paintable()),
+                            .index_in_node = fragment.start(),
+                            .vertical_distance = 0,
+                            .horizontal_distance = fragment_absolute_rect.left() - position_adjusted_by_scroll_offset.x(),
+                        };
+                        if (callback(hit_test_result) == TraversalDecision::Break)
+                            return TraversalDecision::Break;
+                    } else if (position_adjusted_by_scroll_offset.x() > fragment_absolute_rect.right()) {
+                        HitTestResult hit_test_result {
+                            .paintable = const_cast<Paintable&>(fragment.paintable()),
+                            .index_in_node = fragment.start() + fragment.length(),
+                            .vertical_distance = 0,
+                            .horizontal_distance = position_adjusted_by_scroll_offset.x() - fragment_absolute_rect.right(),
+                        };
+                        if (callback(hit_test_result) == TraversalDecision::Break)
+                            return TraversalDecision::Break;
+                    }
                 }
-            } else { // right of the fragment
-                last_good_candidate = HitTestResult { const_cast<Paintable&>(fragment.paintable()), fragment.start() + fragment.length() };
             }
         }
     }
 
-    if (type == HitTestType::TextCursor && last_good_candidate.has_value()) {
-        if (callback(last_good_candidate.value()) == TraversalDecision::Break)
-            return TraversalDecision::Break;
-    }
     if (!stacking_context() && is_visible() && absolute_border_box_rect().contains(position_adjusted_by_scroll_offset.x(), position_adjusted_by_scroll_offset.y())) {
         if (callback(HitTestResult { const_cast<PaintableWithLines&>(*this) }) == TraversalDecision::Break)
             return TraversalDecision::Break;
@@ -907,9 +953,9 @@ TraversalDecision PaintableWithLines::hit_test(CSSPixelPoint position, HitTestTy
     return TraversalDecision::Continue;
 }
 
-void PaintableBox::set_needs_display()
+void PaintableBox::set_needs_display(InvalidateDisplayList should_invalidate_display_list)
 {
-    document().set_needs_display(absolute_rect());
+    document().set_needs_display(absolute_rect(), should_invalidate_display_list);
 }
 
 Optional<CSSPixelRect> PaintableBox::get_masking_area() const
@@ -923,6 +969,72 @@ Optional<CSSPixelRect> PaintableBox::get_masking_area() const
         return {};
     // FIXME: Support other geometry boxes. See: https://drafts.fxtf.org/css-masking/#typedef-geometry-box
     return absolute_border_box_rect();
+}
+
+// https://www.w3.org/TR/css-transforms-1/#transform-box
+CSSPixelRect PaintableBox::transform_box_rect() const
+{
+    auto transform_box = computed_values().transform_box();
+    // For SVG elements without associated CSS layout box, the used value for content-box is fill-box and for
+    // border-box is stroke-box.
+    // FIXME: This currently detects any SVG element except the <svg> one. Is that correct?
+    //        And is it correct to use `else` below?
+    if (is<Painting::SVGPaintable>(*this)) {
+        switch (transform_box) {
+        case CSS::TransformBox::ContentBox:
+            transform_box = CSS::TransformBox::FillBox;
+            break;
+        case CSS::TransformBox::BorderBox:
+            transform_box = CSS::TransformBox::StrokeBox;
+            break;
+        default:
+            break;
+        }
+    }
+    // For elements with associated CSS layout box, the used value for fill-box is content-box and for
+    // stroke-box and view-box is border-box.
+    else {
+        switch (transform_box) {
+        case CSS::TransformBox::FillBox:
+            transform_box = CSS::TransformBox::ContentBox;
+            break;
+        case CSS::TransformBox::StrokeBox:
+        case CSS::TransformBox::ViewBox:
+            transform_box = CSS::TransformBox::BorderBox;
+            break;
+        default:
+            break;
+        }
+    }
+
+    switch (transform_box) {
+    case CSS::TransformBox::ContentBox:
+        // Uses the content box as reference box.
+        // FIXME: The reference box of a table is the border box of its table wrapper box, not its table box.
+        return absolute_rect();
+    case CSS::TransformBox::BorderBox:
+        // Uses the border box as reference box.
+        // FIXME: The reference box of a table is the border box of its table wrapper box, not its table box.
+        return absolute_border_box_rect();
+    case CSS::TransformBox::FillBox:
+        // Uses the object bounding box as reference box.
+        // FIXME: For now we're using the content rect as an approximation.
+        return absolute_rect();
+    case CSS::TransformBox::StrokeBox:
+        // Uses the stroke bounding box as reference box.
+        // FIXME: For now we're using the border rect as an approximation.
+        return absolute_border_box_rect();
+    case CSS::TransformBox::ViewBox:
+        // Uses the nearest SVG viewport as reference box.
+        // FIXME: If a viewBox attribute is specified for the SVG viewport creating element:
+        //  - The reference box is positioned at the origin of the coordinate system established by the viewBox attribute.
+        //  - The dimension of the reference box is set to the width and height values of the viewBox attribute.
+        auto* svg_paintable = first_ancestor_of_type<Painting::SVGSVGPaintable>();
+        if (!svg_paintable)
+            return absolute_border_box_rect();
+        return svg_paintable->absolute_rect();
+    }
+    VERIFY_NOT_REACHED();
 }
 
 void PaintableBox::resolve_paint_properties()
@@ -967,70 +1079,7 @@ void PaintableBox::resolve_paint_properties()
     }
 
     auto const& transform_origin = computed_values.transform_origin();
-    // https://www.w3.org/TR/css-transforms-1/#transform-box
-    auto transform_box = computed_values.transform_box();
-    // For SVG elements without associated CSS layout box, the used value for content-box is fill-box and for
-    // border-box is stroke-box.
-    // FIXME: This currently detects any SVG element except the <svg> one. Is that correct?
-    //        And is it correct to use `else` below?
-    if (is<Painting::SVGPaintable>(*this)) {
-        switch (transform_box) {
-        case CSS::TransformBox::ContentBox:
-            transform_box = CSS::TransformBox::FillBox;
-            break;
-        case CSS::TransformBox::BorderBox:
-            transform_box = CSS::TransformBox::StrokeBox;
-            break;
-        default:
-            break;
-        }
-    }
-    // For elements with associated CSS layout box, the used value for fill-box is content-box and for
-    // stroke-box and view-box is border-box.
-    else {
-        switch (transform_box) {
-        case CSS::TransformBox::FillBox:
-            transform_box = CSS::TransformBox::ContentBox;
-            break;
-        case CSS::TransformBox::StrokeBox:
-        case CSS::TransformBox::ViewBox:
-            transform_box = CSS::TransformBox::BorderBox;
-            break;
-        default:
-            break;
-        }
-    }
-
-    CSSPixelRect reference_box = [&]() {
-        switch (transform_box) {
-        case CSS::TransformBox::ContentBox:
-            // Uses the content box as reference box.
-            // FIXME: The reference box of a table is the border box of its table wrapper box, not its table box.
-            return absolute_rect();
-        case CSS::TransformBox::BorderBox:
-            // Uses the border box as reference box.
-            // FIXME: The reference box of a table is the border box of its table wrapper box, not its table box.
-            return absolute_border_box_rect();
-        case CSS::TransformBox::FillBox:
-            // Uses the object bounding box as reference box.
-            // FIXME: For now we're using the content rect as an approximation.
-            return absolute_rect();
-        case CSS::TransformBox::StrokeBox:
-            // Uses the stroke bounding box as reference box.
-            // FIXME: For now we're using the border rect as an approximation.
-            return absolute_border_box_rect();
-        case CSS::TransformBox::ViewBox:
-            // Uses the nearest SVG viewport as reference box.
-            // FIXME: If a viewBox attribute is specified for the SVG viewport creating element:
-            //  - The reference box is positioned at the origin of the coordinate system established by the viewBox attribute.
-            //  - The dimension of the reference box is set to the width and height values of the viewBox attribute.
-            auto* svg_paintable = first_ancestor_of_type<Painting::SVGSVGPaintable>();
-            if (!svg_paintable)
-                return absolute_border_box_rect();
-            return svg_paintable->absolute_rect();
-        }
-        VERIFY_NOT_REACHED();
-    }();
+    auto reference_box = transform_box_rect();
     auto x = reference_box.left() + transform_origin.x.to_px(layout_node, reference_box.width());
     auto y = reference_box.top() + transform_origin.y.to_px(layout_node, reference_box.height());
     set_transform_origin({ x, y });
@@ -1095,6 +1144,44 @@ void PaintableWithLines::resolve_paint_properties()
             const_cast<Painting::PaintableFragment&>(fragment).set_shadows(move(resolved_shadow_data));
         }
     }
+}
+
+RefPtr<ScrollFrame const> PaintableBox::nearest_scroll_frame() const
+{
+    if (is_fixed_position())
+        return nullptr;
+    auto const* paintable = this->containing_block();
+    while (paintable) {
+        if (paintable->own_scroll_frame())
+            return paintable->own_scroll_frame();
+        if (paintable->is_fixed_position())
+            return nullptr;
+        paintable = paintable->containing_block();
+    }
+    return nullptr;
+}
+
+CSSPixelRect PaintableBox::border_box_rect_relative_to_nearest_scrollable_ancestor() const
+{
+    auto result = absolute_border_box_rect();
+    auto const* nearest_scrollable_ancestor = this->nearest_scrollable_ancestor();
+    if (nearest_scrollable_ancestor) {
+        result.set_location(result.location() - nearest_scrollable_ancestor->absolute_rect().top_left());
+    }
+    return result;
+}
+
+PaintableBox const* PaintableBox::nearest_scrollable_ancestor() const
+{
+    auto const* paintable = this->containing_block();
+    while (paintable) {
+        if (paintable->is_scrollable())
+            return paintable;
+        if (paintable->is_fixed_position())
+            return nullptr;
+        paintable = paintable->containing_block();
+    }
+    return nullptr;
 }
 
 }

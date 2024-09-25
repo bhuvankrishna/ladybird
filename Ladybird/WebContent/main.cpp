@@ -8,7 +8,6 @@
 #include <Ladybird/FontPlugin.h>
 #include <Ladybird/ImageCodecPlugin.h>
 #include <Ladybird/Utilities.h>
-#include <LibAudio/Loader.h>
 #include <LibCore/ArgsParser.h>
 #include <LibCore/EventLoop.h>
 #include <LibCore/LocalServer.h>
@@ -19,6 +18,7 @@
 #include <LibIPC/ConnectionFromClient.h>
 #include <LibJS/Bytecode/Interpreter.h>
 #include <LibMain/Main.h>
+#include <LibMedia/Audio/Loader.h>
 #include <LibRequests/RequestClient.h>
 #include <LibWeb/Bindings/MainThreadVM.h>
 #include <LibWeb/HTML/Window.h>
@@ -136,6 +136,8 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
         Gfx::FontDatabase::the().set_force_fontconfig(true);
     }
 
+    Gfx::FontDatabase::the().load_all_fonts_from_uri("resource://fonts"sv);
+
     // Layout test mode implies internals object is exposed and the Skia CPU backend is used
     if (is_layout_test_mode) {
         expose_internals_object = true;
@@ -154,8 +156,13 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
 
 #if defined(AK_OS_MACOS)
     if (!mach_server_name.is_empty()) {
-        auto server_port = Core::Platform::register_with_mach_server(mach_server_name);
+        [[maybe_unused]] auto server_port = Core::Platform::register_with_mach_server(mach_server_name);
+
+        // FIXME: For some reason, our implementation of IOSurface does not work on Intel macOS. Remove this conditional
+        //        compilation when that is resolved.
+#    if ARCH(AARCH64)
         WebContent::BackingStoreManager::set_browser_mach_port(move(server_port));
+#    endif
     }
 #endif
 

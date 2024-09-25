@@ -14,6 +14,7 @@ namespace Web {
 class DragAndDropEventHandler;
 class EditEventHandler;
 class EventHandler;
+enum class InvalidateDisplayList;
 class LoadRequest;
 class Page;
 class PageClient;
@@ -102,14 +103,23 @@ class BackgroundSizeStyleValue;
 class BasicShapeStyleValue;
 class BorderRadiusStyleValue;
 class CSSAnimation;
+class CSSColorValue;
 class CSSConditionRule;
 class CSSFontFaceRule;
 class CSSGroupingRule;
+class CSSHSL;
+class CSSHWB;
 class CSSImportRule;
 class CSSKeyframeRule;
 class CSSKeyframesRule;
 class CSSKeywordValue;
+class CSSLayerBlockRule;
+class CSSLayerStatementRule;
+class CSSMathValue;
 class CSSMediaRule;
+class CSSOKLab;
+class CSSOKLCH;
+class CSSRGB;
 class CSSRule;
 class CSSRuleList;
 class CSSStyleDeclaration;
@@ -118,9 +128,7 @@ class CSSStyleSheet;
 struct CSSStyleSheetInit;
 class CSSStyleValue;
 class CSSSupportsRule;
-class CalculatedStyleValue;
 class Clip;
-class ColorStyleValue;
 class ConicGradientStyleValue;
 class ContentStyleValue;
 class CounterStyleValue;
@@ -194,6 +202,7 @@ class StringStyleValue;
 class StyleComputer;
 class StyleProperties;
 class StyleSheet;
+struct StyleSheetIdentifier;
 class StyleSheetList;
 class StyleValueList;
 class Supports;
@@ -290,6 +299,10 @@ class TextDecoder;
 struct TextDecoderOptions;
 class TextEncoder;
 struct TextEncoderEncodeIntoResult;
+}
+
+namespace Web::EntriesAPI {
+class FileSystemEntry;
 }
 
 namespace Web::Fetch {
@@ -476,11 +489,15 @@ class Plugin;
 class PluginArray;
 class PromiseRejectionEvent;
 class SelectedFile;
+class ServiceWorkerContainer;
+class ServiceWorkerRegistration;
 class SharedResourceRequest;
 class Storage;
 class SubmitEvent;
 class TextMetrics;
 class TextTrack;
+class TextTrackCue;
+class TextTrackCueList;
 class TextTrackList;
 class Timer;
 class TimeRanges;
@@ -507,8 +524,8 @@ enum class AllowMultipleFiles;
 enum class MediaSeekMode;
 enum class SandboxingFlagSet;
 
-struct CrossOriginOpenerPolicy;
-struct CrossOriginOpenerPolicyEnforcementResult;
+struct OpenerPolicy;
+struct OpenerPolicyEnforcementResult;
 struct Environment;
 struct EnvironmentSettingsObject;
 struct NavigationParams;
@@ -577,6 +594,10 @@ struct LayoutState;
 
 namespace Web::MathML {
 class MathMLElement;
+}
+
+namespace Web::MediaCapabilitiesAPI {
+class MediaCapabilities;
 }
 
 namespace Web::MimeSniff {
@@ -767,6 +788,11 @@ using Promise = JS::PromiseCapability;
 
 namespace Web::WebSockets {
 class WebSocket;
+}
+
+namespace Web::WebVTT {
+class VTTCue;
+class VTTRegion;
 }
 
 namespace Web::XHR {

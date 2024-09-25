@@ -35,6 +35,8 @@ public:
 
     WebIDL::ExceptionOr<bool> dispatch_user_activated_event(DOM::EventTarget&, DOM::Event& event);
 
+    void spoof_current_url(String const& url);
+
     JS::NonnullGCPtr<InternalAnimationTimeline> create_internal_animation_timeline();
 
     void simulate_drag_start(double x, double y, String const& name, String const& contents);
@@ -46,6 +48,9 @@ private:
     virtual void initialize(JS::Realm&) override;
 
     void click(double x, double y, UIEvents::MouseButton);
+
+    HTML::Window& internals_window() const;
+    Page& internals_page() const;
 };
 
 }
